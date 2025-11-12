@@ -34,12 +34,13 @@ class FileManager:
         copy_list: 원본 repo 상대 경로 리스트
         transform_path: [[원본 경로 접두사, 대상 경로 접두사], ...]
         """
-        target_repo_dir = self.copy_base_dir / repo_name
+        target_repo_dir = self.copy_base_dir
         transform_path = transform_path or []
 
         for rel_path in copy_list:
             src_file = (repo_dir / rel_path).resolve()
-            dest_sub_path = Path(rel_path)
+            # repo 폴더 포함
+            dest_sub_path = Path(repo_name) / Path(rel_path)
 
             # transform_path 적용 (중간 경로 포함)
             for src_prefix, dest_prefix in transform_path:
@@ -47,7 +48,6 @@ class FileManager:
                 parts = list(dest_sub_path.parts)
                 for i in range(len(parts) - len(src_prefix_path.parts) + 1):
                     if parts[i:i+len(src_prefix_path.parts)] == list(src_prefix_path.parts):
-                        # 일치하는 부분만 치환
                         parts[i:i+len(src_prefix_path.parts)] = Path(dest_prefix).parts
                         dest_sub_path = Path(*parts)
                         break  # 첫 번째 매칭만 적용

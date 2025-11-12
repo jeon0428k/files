@@ -33,7 +33,7 @@ def main():
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(process_single_repo, processor, repo) for repo in repos]
         for future in as_completed(futures):
-            future.result()  # 예외 발생 시 로그 기록
+            future.result()
 
 if __name__ == "__main__":
     main()
