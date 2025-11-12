@@ -11,11 +11,11 @@ paths:
 repositories:
   - name: "team/service-a.git"
     copy_list:
-      - "src/config/settings.yml"
-      - "src/config/extra/config2.yml"
+      - "Web/config/settings.yml"
+      - "Web/config/extra/config2.yml"
     transform_path:
-      - ["src/config/extra", "config_extra"]
-      - ["src/config", "config"]
+      - ["Web/config/extra", "config_extra"]
+      - ["Web/config", "config"]
   - name: "team/service-b.git"
     copy_list: []
   - name: "team/service-c.git"
