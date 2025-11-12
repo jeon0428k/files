@@ -20,25 +20,29 @@ class FileManager:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}] {message}\n")
 
-    def backup_if_exists(self, repo_name: str):
-        target_dir = self.copy_base_dir / repo_name
-        if target_dir.exists() and any(target_dir.iterdir()):
+    def backup_copy_target(self):
+        """
+        copy_target 전체를 backup/YYYYMMDD_HHMMSS로 이동
+        """
+        if self.copy_base_dir.exists() and any(self.copy_base_dir.iterdir()):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_path = self.backup_base / f"{timestamp}_{repo_name}"
-            backup_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(target_dir), str(backup_path))
-            self._write_log(repo_name, f"Backup: {target_dir} → {backup_path}")
+            backup_path = self.backup_base / f"{timestamp}"
+            backup_path.mkdir(parents=True, exist_ok=True)
+            for item in self.copy_base_dir.iterdir():
+                shutil.move(str(item), str(backup_path / item.name))
+            print(f"📦 전체 백업 완료: {self.copy_base_dir} → {backup_path}")
 
     def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: list[list[str]] = None):
         target_repo_dir = self.copy_base_dir
         transform_path = transform_path or []
 
-        repo_folder_name = Path(repo_name).stem  # <-- 프로젝트 폴더명만 사용
+        repo_folder_name = Path(repo_name).stem  # 프로젝트 폴더명만 사용
 
         for rel_path in copy_list:
             src_file = (repo_dir / rel_path).resolve()
             dest_sub_path = Path(repo_folder_name) / Path(rel_path)
 
+            # transform_path 적용 (중간 경로 기준)
             for src_prefix, dest_prefix in transform_path:
                 src_parts = Path(src_prefix).parts
                 dest_parts = Path(dest_prefix).parts

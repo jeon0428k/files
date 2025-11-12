@@ -6,6 +6,7 @@ class RepoProcessor:
         self.git = git_manager
         self.fm = file_manager
         self.repo_base_dir = repo_base_dir
+        self.backup_done = False  # copy_target 전체 백업 여부
 
     def process_repo(self, repo_info: dict):
         repo_name = repo_info["name"]
@@ -21,5 +22,9 @@ class RepoProcessor:
             self.fm._write_log(repo_name, msg)
             return
 
-        self.fm.backup_if_exists(repo_name)
+        # copy_target 전체 백업 한 번만 수행
+        if not self.backup_done:
+            self.fm.backup_copy_target()
+            self.backup_done = True
+
         self.fm.copy_files(repo_dir, repo_name, copy_list, transform_path)
