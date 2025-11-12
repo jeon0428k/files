@@ -1,23 +1,22 @@
 github:
-  server: "https://github.mycompany.com"
+  server: "https://github.com"
   token: "ghp_your_enterprise_token"
   branch: "main"
 
 paths:
-  repo_dir: "./repos"         # clone 경로 (절대/상대 모두 가능)
-  copy_target: "./deploy"     # copy 대상 경로
-  log_dir: "./logs"           # 로그 파일 위치
+  repo_dir: "E:/deploy/repo" # clone 경로 (절대/상대 모두 가능)
+  copy_target: "E:/deploy/copy" # copy 대상 경로
+  log_dir: "E:/deploy/log" # 로그 파일 위치
 
 repositories:
-  - name: "team/service-a.git"
-    copy_list:
-      - "Web/config/settings.yml"
-      - "Web/config/extra/config2.yml"
+  - name: "jeon0428k/jrebel-license-server.git"
     transform_path:
-      - ["Web/config/extra", "config_extra"]
-      - ["Web/config", "config"]
-  - name: "team/service-b.git"
-    copy_list: []
-  - name: "team/service-c.git"
+      - ["jrebel-license-server/src", "test"]
     copy_list:
-      - "docs/manual.md"
+      - "src/main/java/com/imjcker/jrebel/JrebelApplication.java"
+      - "src/main/resources/application.yml"
+#  - name: "team/service-b.git"
+#    copy_list: []
+#  - name: "team/service-c.git"
+#    copy_list:
+#      - "docs/manual.md"

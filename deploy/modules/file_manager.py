@@ -2,6 +2,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
+
 class FileManager:
     def __init__(self, copy_base_dir: str, log_base_dir: str):
         self.copy_base_dir = Path(copy_base_dir).resolve()
@@ -21,9 +22,7 @@ class FileManager:
             f.write(f"[{timestamp}] {message}\n")
 
     def backup_copy_target(self):
-        """
-        copy_target 전체를 backup/YYYYMMDD_HHMMSS로 이동
-        """
+        """copy_target 전체를 backup/YYYYMMDD_HHMMSS로 이동"""
         if self.copy_base_dir.exists() and any(self.copy_base_dir.iterdir()):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_path = self.backup_base / f"{timestamp}"
@@ -32,15 +31,25 @@ class FileManager:
                 shutil.move(str(item), str(backup_path / item.name))
             print(f"📦 전체 백업 완료: {self.copy_base_dir} → {backup_path}")
 
+    def check_copy_files_exist(self, repo_dir: Path, copy_list: list[str]) -> tuple[list[str], list[str]]:
+        """copy_list 내 파일 존재 여부를 미리 체크"""
+        exist_files = []
+        missing_files = []
+        for rel_path in copy_list:
+            src_file = (repo_dir / rel_path).resolve()
+            if src_file.exists():
+                exist_files.append(rel_path)
+            else:
+                missing_files.append(rel_path)
+        return exist_files, missing_files
+
     def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: list[list[str]] = None):
         target_repo_dir = self.copy_base_dir
         transform_path = transform_path or []
 
-        repo_folder_name = Path(repo_name).stem  # 프로젝트 폴더명만 사용
-
         for rel_path in copy_list:
             src_file = (repo_dir / rel_path).resolve()
-            dest_sub_path = Path(repo_folder_name) / Path(rel_path)
+            dest_sub_path = Path(repo_name) / Path(rel_path)
 
             # transform_path 적용 (중간 경로 기준)
             for src_prefix, dest_prefix in transform_path:
@@ -49,8 +58,8 @@ class FileManager:
                 parts = list(dest_sub_path.parts)
 
                 for i in range(len(parts) - len(src_parts) + 1):
-                    if parts[i:i+len(src_parts)] == list(src_parts):
-                        parts[i:i+len(src_parts)] = list(dest_parts)
+                    if parts[i:i + len(src_parts)] == list(src_parts):
+                        parts[i:i + len(src_parts)] = list(dest_parts)
                         dest_sub_path = Path(*parts)
                         break
 
