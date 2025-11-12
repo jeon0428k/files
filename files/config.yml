@@ -1,0 +1,18 @@
+github:
+  server: "https://github.mycompany.com"
+  token: "ghp_your_enterprise_token"
+  branch: "main"
+
+paths:
+  repo_dir: "./repos"         # clone 경로 (절대/상대 모두 가능)
+  copy_target: "./deploy"     # copy 대상 경로
+  log_dir: "./logs"           # 로그 파일 위치
+
+repositories:
+  - name: "team/service-a.git"
+    copy_list:
+      - "src/config/settings.yml"
+      - "README.md"
+  - name: "team/service-b.git"
+    copy_list: []
+  - name: "team/service-c.git"
