@@ -30,25 +30,23 @@ class FileManager:
             self._write_log(repo_name, f"Backup: {target_dir} → {backup_path}")
 
     def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: list[list[str]] = None):
-        """
-        copy_list: 원본 repo 상대 경로 리스트
-        transform_path: [[원본 경로 접두사, 대상 경로 접두사], ...]
-        """
         target_repo_dir = self.copy_base_dir
         transform_path = transform_path or []
 
         for rel_path in copy_list:
             src_file = (repo_dir / rel_path).resolve()
-            # repo 폴더 포함
+            # repo 폴더 포함 최종 경로
             dest_sub_path = Path(repo_name) / Path(rel_path)
 
-            # transform_path 적용 (중간 경로 포함)
+            # transform_path 적용 (중간 경로 기준)
             for src_prefix, dest_prefix in transform_path:
-                src_prefix_path = Path(src_prefix)
+                src_parts = Path(src_prefix).parts
+                dest_parts = Path(dest_prefix).parts
                 parts = list(dest_sub_path.parts)
-                for i in range(len(parts) - len(src_prefix_path.parts) + 1):
-                    if parts[i:i+len(src_prefix_path.parts)] == list(src_prefix_path.parts):
-                        parts[i:i+len(src_prefix_path.parts)] = Path(dest_prefix).parts
+
+                for i in range(len(parts) - len(src_parts) + 1):
+                    if parts[i:i+len(src_parts)] == list(src_parts):
+                        parts[i:i+len(src_parts)] = list(dest_parts)
                         dest_sub_path = Path(*parts)
                         break  # 첫 번째 매칭만 적용
 
