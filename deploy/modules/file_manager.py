@@ -28,41 +28,40 @@ class FileManager:
             shutil.move(str(target_dir), str(backup_path))
             self._write_log(repo_name, f"Backup: {target_dir} → {backup_path}")
 
-    def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: list[list[str]] = None):
-        """
-        copy_list: 원본 repo 상대 경로 리스트
-        transform_path: [[원본 경로 접두사, 대상 경로 접두사], ...]
-        """
-        target_repo_dir = self.copy_base_dir / repo_name
-        transform_path = transform_path or []
+def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: list[list[str]] = None):
+    """
+    copy_list: 원본 repo 상대 경로 리스트
+    transform_path: [[원본 경로 접두사, 대상 경로 접두사], ...]
+    """
+    target_repo_dir = self.copy_base_dir / repo_name
+    transform_path = transform_path or []
 
-        for rel_path in copy_list:
-            src_file = (repo_dir / rel_path).resolve()
-            dest_sub_path = Path(rel_path)
+    for rel_path in copy_list:
+        src_file = (repo_dir / rel_path).resolve()
+        dest_sub_path = Path(rel_path)
 
-            # transform_path 리스트 순차 적용 (중간 path 포함 매칭)
-            for src_prefix, dest_prefix in transform_path:
-                src_prefix_path = Path(src_prefix)
-                for parent in [dest_sub_path] + list(dest_sub_path.parents):
-                    # 디렉토리 기준 매칭
-                    if parent.match(str(src_prefix_path)):
-                        try:
-                            suffix = dest_sub_path.relative_to(parent)
-                            dest_sub_path = Path(dest_prefix) / suffix
-                        except ValueError:
-                            continue
-                        break  # 매칭되면 해당 transform 적용 후 종료
+        for src_prefix, dest_prefix in transform_path:
+            src_prefix_path = Path(src_prefix)
+            # Path.parts를 이용해 부분 매칭
+            parts = list(dest_sub_path.parts)
+            for i in range(len(parts) - len(src_prefix_path.parts) + 1):
+                # 연속된 부분 경로가 src_prefix_path와 일치하면 변환
+                if parts[i:i+len(src_prefix_path.parts)] == list(src_prefix_path.parts):
+                    # 변환된 부분으로 대체
+                    parts[i:i+len(src_prefix_path.parts)] = Path(dest_prefix).parts
+                    dest_sub_path = Path(*parts)
+                    break  # 첫 번째 매칭만 적용
 
-            dest_file = (target_repo_dir / dest_sub_path).resolve()
+        dest_file = (target_repo_dir / dest_sub_path).resolve()
 
-            if not src_file.exists():
-                msg = f"⚠️ 존재하지 않는 파일: {src_file}"
-                print(msg)
-                self._write_log(repo_name, msg)
-                continue
-
-            dest_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_file, dest_file)
-            msg = f"✅ 복사 완료: {dest_file}"
+        if not src_file.exists():
+            msg = f"⚠️ 존재하지 않는 파일: {src_file}"
             print(msg)
             self._write_log(repo_name, msg)
+            continue
+
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_file, dest_file)
+        msg = f"✅ 복사 완료: {dest_file}"
+        print(msg)
+        self._write_log(repo_name, msg)
