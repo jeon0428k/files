@@ -33,12 +33,12 @@ class FileManager:
         target_repo_dir = self.copy_base_dir
         transform_path = transform_path or []
 
+        repo_folder_name = Path(repo_name).stem  # <-- 프로젝트 폴더명만 사용
+
         for rel_path in copy_list:
             src_file = (repo_dir / rel_path).resolve()
-            # repo 폴더 포함 최종 경로
-            dest_sub_path = Path(repo_name) / Path(rel_path)
+            dest_sub_path = Path(repo_folder_name) / Path(rel_path)
 
-            # transform_path 적용 (중간 경로 기준)
             for src_prefix, dest_prefix in transform_path:
                 src_parts = Path(src_prefix).parts
                 dest_parts = Path(dest_prefix).parts
@@ -48,7 +48,7 @@ class FileManager:
                     if parts[i:i+len(src_parts)] == list(src_parts):
                         parts[i:i+len(src_parts)] = list(dest_parts)
                         dest_sub_path = Path(*parts)
-                        break  # 첫 번째 매칭만 적용
+                        break
 
             dest_file = (target_repo_dir / dest_sub_path).resolve()
 
