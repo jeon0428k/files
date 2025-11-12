@@ -7,7 +7,6 @@ class FileManager:
         self.copy_base_dir = Path(copy_base_dir).resolve()
         self.backup_base = self.copy_base_dir.parent / "backup"
         self.backup_base.mkdir(parents=True, exist_ok=True)
-
         self.log_base_dir = Path(log_base_dir).resolve()
         self.log_base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -24,34 +23,35 @@ class FileManager:
         target_dir = self.copy_base_dir / repo_name
         if target_dir.exists() and any(target_dir.iterdir()):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_path = self.backup_base / f"{timestamp}_{repo_name}"  # YYYYMMDD_HHMMSS_(repository명)
+            backup_path = self.backup_base / f"{timestamp}_{repo_name}"
             backup_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(target_dir), str(backup_path))
             self._write_log(repo_name, f"Backup: {target_dir} → {backup_path}")
 
-    def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: tuple[str,str] = None):
+    def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: list[list[str]] = None):
         """
         copy_list: 원본 repo 상대 경로 리스트
-        transform_path: (원본 디렉토리 경로, 대상 디렉토리 경로) 단일 적용
+        transform_path: [[원본 경로 접두사, 대상 경로 접두사], ...]
         """
         target_repo_dir = self.copy_base_dir / repo_name
+        transform_path = transform_path or []
 
         for rel_path in copy_list:
             src_file = (repo_dir / rel_path).resolve()
             dest_sub_path = Path(rel_path)
 
-            # transform_path 단일 적용
-            if transform_path:
-                src_prefix, dest_prefix = transform_path
+            # transform_path 리스트 순차 적용 (중간 path 포함 매칭)
+            for src_prefix, dest_prefix in transform_path:
                 src_prefix_path = Path(src_prefix)
                 for parent in [dest_sub_path] + list(dest_sub_path.parents):
+                    # 디렉토리 기준 매칭
                     if parent.match(str(src_prefix_path)):
                         try:
                             suffix = dest_sub_path.relative_to(parent)
                             dest_sub_path = Path(dest_prefix) / suffix
                         except ValueError:
                             continue
-                        break  # 변환 적용 후 종료
+                        break  # 매칭되면 해당 transform 적용 후 종료
 
             dest_file = (target_repo_dir / dest_sub_path).resolve()
 
