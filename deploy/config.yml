@@ -12,9 +12,10 @@ repositories:
   - name: "team/service-a.git"
     copy_list:
       - "src/config/settings.yml"
-      - "README.md"
+      - "src/config/extra/config2.yml"
     transform_path:
-      "src/config": "config"
+      - ["src/config/extra", "config_extra"]
+      - ["src/config", "config"]
   - name: "team/service-b.git"
     copy_list: []
   - name: "team/service-c.git"

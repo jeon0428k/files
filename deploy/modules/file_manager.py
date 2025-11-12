@@ -29,20 +29,23 @@ class FileManager:
             shutil.move(str(target_dir), str(backup_path))
             self._write_log(repo_name, f"Backup: {target_dir} → {backup_path}")
 
-    def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: dict[str,str] = None):
+    def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: list[list[str]] = None):
+        """
+        copy_list: 원본 repo 상대 경로 리스트
+        transform_path: [[원본 경로 접두사, 대상 경로 접두사], ...] 순차적 적용
+        """
         target_repo_dir = self.copy_base_dir / repo_name
-        transform_path = transform_path or {}
+        transform_path = transform_path or []
 
         for rel_path in copy_list:
             src_file = (repo_dir / rel_path).resolve()
-            
-            # 변환 경로 적용: 정의된 것만 변환
             dest_sub_path = Path(rel_path)
-            for src_prefix, dest_prefix in transform_path.items():
-                if rel_path.startswith(src_prefix):
-                    suffix = Path(rel_path).relative_to(src_prefix)
+
+            # transform_path 리스트 순차 적용
+            for src_prefix, dest_prefix in transform_path:
+                if str(dest_sub_path).startswith(src_prefix):
+                    suffix = Path(dest_sub_path).relative_to(src_prefix)
                     dest_sub_path = Path(dest_prefix) / suffix
-                    break  # 첫 번째 매칭만 적용
 
             dest_file = (target_repo_dir / dest_sub_path).resolve()
 
