@@ -29,34 +29,29 @@ class FileManager:
             shutil.move(str(target_dir), str(backup_path))
             self._write_log(repo_name, f"Backup: {target_dir} → {backup_path}")
 
-    def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: list[tuple[str,str]] = None):
+    def copy_files(self, repo_dir: Path, repo_name: str, copy_list: list[str], transform_path: tuple[str,str] = None):
         """
         copy_list: 원본 repo 상대 경로 리스트
-        transform_path: [(원본 디렉토리 경로, 대상 디렉토리 경로), ...] 순차적 적용
+        transform_path: (원본 디렉토리 경로, 대상 디렉토리 경로) 단일 적용
         """
         target_repo_dir = self.copy_base_dir / repo_name
-        transform_path = transform_path or []
 
         for rel_path in copy_list:
             src_file = (repo_dir / rel_path).resolve()
             dest_sub_path = Path(rel_path)
 
-            # transform_path 리스트 순차 적용
-            for src_prefix, dest_prefix in transform_path:
+            # transform_path 단일 적용
+            if transform_path:
+                src_prefix, dest_prefix = transform_path
                 src_prefix_path = Path(src_prefix)
-                # 경로 기준 정확한 매칭
-                matched = False
                 for parent in [dest_sub_path] + list(dest_sub_path.parents):
                     if parent.match(str(src_prefix_path)):
                         try:
                             suffix = dest_sub_path.relative_to(parent)
                             dest_sub_path = Path(dest_prefix) / suffix
-                            matched = True
-                            break
                         except ValueError:
                             continue
-                if matched:
-                    break  # 한 transform 매칭 시 적용 후 다음 파일로
+                        break  # 변환 적용 후 종료
 
             dest_file = (target_repo_dir / dest_sub_path).resolve()
 
