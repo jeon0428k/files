@@ -11,6 +11,7 @@ class RepoProcessor:
         repo_name = repo_info["name"]
         copy_list = repo_info.get("copy_list")
         transform_path = repo_info.get("transform_path")
+
         print(f"\n🚀 처리 중: {repo_name}")
         repo_dir = self.git.clone_or_pull(repo_name, self.repo_base_dir)
         repo_folder_name = repo_dir.name

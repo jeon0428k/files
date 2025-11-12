@@ -20,7 +20,6 @@ def main():
     token = config["github"]["token"]
     branch = config["github"].get("branch", "main")
 
-    # 절대경로 변환
     repo_base_dir = Path(config["paths"]["repo_dir"]).resolve()
     copy_base_dir = Path(config["paths"]["copy_target"]).resolve()
     log_base_dir = Path(config["paths"]["log_dir"]).resolve()
@@ -31,7 +30,6 @@ def main():
     file_manager = FileManager(copy_base_dir, log_base_dir)
     processor = RepoProcessor(git_manager, file_manager, repo_base_dir)
 
-    # 멀티스레드 처리
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(process_single_repo, processor, repo) for repo in repos]
         for future in as_completed(futures):
