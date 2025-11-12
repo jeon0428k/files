@@ -13,6 +13,10 @@ repositories:
     copy_list:
       - "src/config/settings.yml"
       - "README.md"
+    transform_path:
+      "src/config": "config"
   - name: "team/service-b.git"
     copy_list: []
   - name: "team/service-c.git"
+    copy_list:
+      - "docs/manual.md"
