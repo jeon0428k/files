@@ -6,17 +6,21 @@ github:
 paths:
   repo_dir: "E:/deploy/repo" # clone 경로 (절대/상대 모두 가능)
   copy_dir: "E:/deploy/copy" # copy 대상 경로
-  logs_dir: "E:/deploy" # 로그 파일 위치
+  back_dir: "E:/deploy/backup" # copy backup 경로
+  logs_dir: "E:/deploy/logs" # 로그 파일 위치
   ant_cmd: "D:/program/apache-ant-1.10.15/bin/ant.bat" # Ant 절대경로
 
 repositories:
-  - name: "jeon0428k/jrebel-license-server.git"
-    transform_path:
-      - ["jrebel-license-server/src", "test"]
-    copy_list:
-      - "src/main/java/com/imjcker/jrebel/JrebelApplication.java"
-      - "src/main/resources/application.yml"
+#  - name: "jeon0428k/jrebel-license-server.git"
+#    build_file: "E:/deploy/files/jrebel-license-server.xml"
+#    transform_path:
+#      - ["jrebel-license-server/src", "test"]
+#    copy_list:
+#      - "src/main/java/com/imjcker/jrebel/JrebelApplication.java"
+#      - "src/main/resources/application.yml"
   - name: "jeon0428k/SpringMVC-MyBatis-Demo.git"
+    git_mode: "clean" # pull: clone/pull, clean: 디렉토리 삭제 후 clone
+    build_file: "E:/deploy/files/SpringMVC-MyBatis-Demo.xml"
     transform_path:
       - ["SpringMVC-MyBatis-Demo/classes", "test/etc"]
     copy_list:

@@ -13,8 +13,8 @@ def process_single_repo(processor, repo):
         repo_name = Path(repo_path).name
         if repo_name.endswith(".git"):
             repo_name = repo_name[:-4]
-        processor.fm._write_log(repo_name, f"❌ 처리 실패: {e}")
-        print(f"❌ {repo_name} 처리 중 에러: {e}")
+        processor.fm.append_log(repo_name, f"❌ 처리 실패: {e}")
+        processor.fm.session_log(repo_name, f"❌ 처리 실패: {e}")
 
 def main():
     config = load_config("config.yml")
@@ -24,14 +24,19 @@ def main():
     branch = config["github"].get("branch", "main")
 
     repo_base_dir = Path(config["paths"]["repo_dir"]).resolve()
-    copy_base_dir = Path(config["paths"]["copy_dir"]).resolve()
-    logs_base_dir = Path(config["paths"]["logs_dir"]).resolve()  # 변경
+    copy_dir = Path(config["paths"]["copy_dir"]).resolve()
+    logs_dir = Path(config["paths"]["logs_dir"]).resolve()
+    back_dir = Path(config["paths"]["back_dir"]).resolve()
     ant_cmd = config["paths"]["ant_cmd"]
+
+    # 실행 전에 폴더 생성
+    for d in [repo_base_dir, copy_dir, logs_dir, back_dir]:
+        d.mkdir(parents=True, exist_ok=True)
 
     repos = config["repositories"]
 
-    git_manager = GitManager(server, token, branch)
-    file_manager = FileManager(copy_base_dir, logs_base_dir)  # logs_dir 반영
+    file_manager = FileManager(copy_dir, logs_dir, back_dir)
+    git_manager = GitManager(server, token, branch, file_manager)
     processor = RepoProcessor(git_manager, file_manager, repo_base_dir, ant_cmd)
 
     with ThreadPoolExecutor(max_workers=5) as executor:
