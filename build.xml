@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="MyWebApp" default="war" basedir=".">
+
+    <!-- 🏗️ 기본 경로 설정 -->
+    <property name="src.dir" value="src"/>
+    <property name="webapp.dir" value="WebContents"/>
+    <property name="lib.dir" value="lib"/>
+    <property name="build.dir" value="build"/>
+    <property name="classes.dir" value="${build.dir}/classes"/>
+    <property name="dist.dir" value="dist"/>
+    <property name="war.name" value="MyWebApp.war"/>
+    <property name="jar.name" value="MyWebApp.jar"/>
+    <property name="main.class" value="com.example.Main"/> <!-- JAR 실행용 Main 클래스 -->
+    <property name="deploy.dir" value="C:/tomcat/webapps"/> <!-- Tomcat 경로 수정 필요 -->
+
+    <!-- 💡 클래스패스 -->
+    <path id="classpath">
+        <fileset dir="${lib.dir}" includes="**/*.jar"/>
+    </path>
+
+    <!-- 🧹 clean -->
+    <target name="clean">
+        <echo message="Cleaning build and dist directories..."/>
+        <delete dir="${build.dir}"/>
+        <delete dir="${dist.dir}"/>
+    </target>
+
+    <!-- 🧩 compile -->
+    <target name="compile" depends="clean">
+        <echo message="Compiling Java source files..."/>
+        <mkdir dir="${classes.dir}"/>
+
+        <javac srcdir="${src.dir}" destdir="${classes.dir}" includeantruntime="false" encoding="UTF-8">
+            <classpath refid="classpath"/>
+        </javac>
+
+        <!-- MyBatis Mapper, Properties 등 리소스 복사 -->
+        <copy todir="${classes.dir}">
+            <fileset dir="${src.dir}" includes="**/*.xml, **/*.properties"/>
+        </copy>
+    </target>
+
+    <!-- 📂 리소스 복사 -->
+    <target name="copy-resources" depends="compile">
+        <echo message="Copying web resources..."/>
+        <mkdir dir="${build.dir}/${webapp.dir}"/>
+        <copy todir="${build.dir}/${webapp.dir}">
+            <fileset dir="${webapp.dir}"/>
+        </copy>
+    </target>
+
+    <!-- 🏗️ build-only: 컴파일 + 리소스 복사 -->
+    <target name="build-only" depends="copy-resources">
+        <echo message="Build completed (classes + resources only)."/>
+    </target>
+
+    <!-- 📦 WAR 파일 생성 -->
+    <target name="war" depends="copy-resources">
+        <echo message="Building WAR file..."/>
+        <mkdir dir="${dist.dir}"/>
+
+        <war destfile="${dist.dir}/${war.name}" webxml="${webapp.dir}/WEB-INF/web.xml">
+            <classes dir="${classes.dir}"/>
+            <lib dir="${lib.dir}" includes="**/*.jar"/>
+            <fileset dir="${webapp.dir}" excludes="WEB-INF/web.xml"/>
+        </war>
+
+        <echo message="WAR build completed: ${dist.dir}/${war.name}"/>
+    </target>
+
+    <!-- 🧱 JAR 파일 생성 -->
+    <target name="jar" depends="compile">
+        <echo message="Building JAR file..."/>
+        <mkdir dir="${dist.dir}"/>
+
+        <jar destfile="${dist.dir}/${jar.name}" basedir="${classes.dir}">
+            <manifest>
+                <attribute name="Main-Class" value="${main.class}"/>
+                <attribute name="Class-Path">
+                    <classpath>
+                        <fileset dir="${lib.dir}" includes="**/*.jar"/>
+                    </classpath>
+                </attribute>
+            </manifest>
+        </jar>
+
+        <echo message="JAR build completed: ${dist.dir}/${jar.name}"/>
+    </target>
+
+    <!-- 🚀 배포 -->
+    <target name="deploy" depends="war">
+        <echo message="Deploying WAR to Tomcat..."/>
+        <copy file="${dist.dir}/${war.name}" todir="${deploy.dir}" overwrite="true"/>
+        <echo message="Deployed to: ${deploy.dir}/${war.name}"/>
+    </target>
+
+    <!-- 🧪 전체 빌드 + 배포 -->
+    <target name="all" depends="deploy">
+        <echo message="All tasks completed successfully."/>
+    </target>
+
+</project>

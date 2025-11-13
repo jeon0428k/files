@@ -12,7 +12,12 @@ class GitManager:
 
     def clone_or_pull(self, repo_path: str, base_dir: str) -> Path:
         base_dir = Path(base_dir).resolve()
-        repo_name = Path(repo_path).stem
+
+        # repo_name: 계정명 제외, .git 제거
+        repo_name = Path(repo_path).name
+        if repo_name.endswith(".git"):
+            repo_name = repo_name[:-4]
+
         local_dir = base_dir / repo_name
         local_dir.parent.mkdir(parents=True, exist_ok=True)
         auth_url = self._auth_url(repo_path)
@@ -24,4 +29,5 @@ class GitManager:
             print(f"📥 Pull (강제 덮어쓰기): {repo_path}")
             subprocess.run(["git", "fetch", "origin"], cwd=local_dir, check=True)
             subprocess.run(["git", "reset", "--hard", f"origin/{self.branch}"], cwd=local_dir, check=True)
+
         return local_dir.resolve()

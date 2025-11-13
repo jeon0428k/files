@@ -9,7 +9,10 @@ def process_single_repo(processor, repo):
     try:
         processor.process_repo(repo)
     except Exception as e:
-        repo_name = repo.get("name", "unknown")
+        repo_path = repo.get("name", "unknown")
+        repo_name = Path(repo_path).name
+        if repo_name.endswith(".git"):
+            repo_name = repo_name[:-4]
         processor.fm._write_log(repo_name, f"❌ 처리 실패: {e}")
         print(f"❌ {repo_name} 처리 중 에러: {e}")
 
@@ -21,14 +24,15 @@ def main():
     branch = config["github"].get("branch", "main")
 
     repo_base_dir = Path(config["paths"]["repo_dir"]).resolve()
-    copy_base_dir = Path(config["paths"]["copy_target"]).resolve()
-    log_base_dir = Path(config["paths"]["log_dir"]).resolve()
+    copy_base_dir = Path(config["paths"]["copy_dir"]).resolve()
+    logs_base_dir = Path(config["paths"]["logs_dir"]).resolve()  # 변경
+    ant_cmd = config["paths"]["ant_cmd"]
 
     repos = config["repositories"]
 
     git_manager = GitManager(server, token, branch)
-    file_manager = FileManager(copy_base_dir, log_base_dir)
-    processor = RepoProcessor(git_manager, file_manager, repo_base_dir)
+    file_manager = FileManager(copy_base_dir, logs_base_dir)  # logs_dir 반영
+    processor = RepoProcessor(git_manager, file_manager, repo_base_dir, ant_cmd)
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(process_single_repo, processor, repo) for repo in repos]
