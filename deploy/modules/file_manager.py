@@ -27,14 +27,16 @@ class FileManager:
 
     # 실행 시점 로그 (파일 + console 출력)
     def session_log(self, repo_name: str, message: str):
+        # 세션 로그 파일명을 repo_name.log 형식으로 고정
         if repo_name not in self.session_logs:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.session_logs[repo_name] = self.copy_dir / f"{timestamp}_{repo_name}.log"
+            self.session_logs[repo_name] = self.copy_dir / f"{repo_name}.log"
         log_file = self.session_logs[repo_name]
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 로그 파일에 기록
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}] {message}\n")
-        print(message)  # console 출력은 여기서만
+        # console 출력 (세션 로그 기준으로만)
+        print(message)
 
     # copy_dir 백업 (한 번만, thread-safe)
     def backup_copy_target(self):
