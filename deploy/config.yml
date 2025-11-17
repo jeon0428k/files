@@ -1,30 +1,77 @@
+# true  → repository 를 순차(single-thread)로 실행
+# false → 병렬(ThreadPoolExecutor)로 실행
+is_single: false
+
+# true  → worklist.txt 기반으로 copy 목록을 repository 별로 분류해서 사용
+# false → 기본 방식인 repository.copy_list 사용
+is_worklist: true
+
+# --------------------------------------------------------------------
+# GitHub 설정
+# --------------------------------------------------------------------
 github:
   server: "https://github.com"
   token: "ghp_your_enterprise_token"
   branch: "main"
 
+# --------------------------------------------------------------------
+# 경로 설정
+# --------------------------------------------------------------------
 paths:
-  repo_dir: "E:/deploy/repo" # clone 경로 (절대/상대 모두 가능)
-  copy_dir: "E:/deploy/copy" # copy 대상 경로
-  back_dir: "E:/deploy/backup" # copy backup 경로
-  logs_dir: "E:/deploy" # 로그 파일 위치
-  ant_cmd: "D:/program/apache-ant-1.10.15/bin/ant.bat" # Ant 절대경로
+  # Git clone/pull 작업 공간 (절대/상대 모두 가능)
+  repo_dir: "E:/deploy/repo"
+  # build 결과물을 copy 하는 폴더
+  copy_dir: "E:/deploy/copy"
+  # copy 폴더 백업 저장 위치
+  back_dir: "E:/deploy/backup"
+  # repository별 전체 로그 저장 위치
+  logs_dir: "E:/deploy"
+  # Ant 실행 경로 (절대경로)
+  ant_cmd: "D:/program/apache-ant-1.10.15/bin/ant.bat"
+  # is_worklist = true 일 때만 사용
+  worklist_file: "./worklist.txt"
 
+# --------------------------------------------------------------------
+# repository 목록
+#    [name] repository name
+#    [execute] 실행모드
+#       all   → git(build_file) + build + copy + check (세션로그 ON)
+#       git   → git(build_file) 단계만 수행
+#       build → build 단계만 수행
+#       copy  → copy 단계만 수행 (조건: build_dir 에 파일 존재해야 함)
+#       check → 파일 체크만 수행 (copy 제외)
+#       stop  → 완전히 제외
+#    [git_mode] git 모드
+#       clean → 기존 폴더 삭제 후 clone
+#       pull → fetch + reset
+#    [build_file] build 에 사용될 build.xml 경로
+#    [transform_path] copy 경로 변환 규칙
+#    [worklist_prefixes] worklist 모드일 경우 prefix 조건
+#    [copy_list] copy_list (is_worklist=false 일 때만 사용)
+# --------------------------------------------------------------------
 repositories:
-  - name: "jeon0428k/jrebel-license-server.git"
-    build_file: "E:/deploy/files/jrebel-license-server.xml"
-    transform_path:
-      - ["jrebel-license-server/src", "test"]
-    copy_list:
-      - "src/main/java/com/imjcker/jrebel/JrebelApplication.java"
-      - "src/main/resources/application.yml"
   - name: "jeon0428k/SpringMVC-MyBatis-Demo.git"
-    git_mode: "clean" # pull: clone/pull, clean: 디렉토리 삭제 후 clone
+    execute: "all"
+    git_mode: "pull"
     build_file: "E:/deploy/files/SpringMVC-MyBatis-Demo.xml"
     transform_path:
       - ["SpringMVC-MyBatis-Demo/classes", "test/etc"]
+    worklist_prefixes:
+      - "classes/com"
     copy_list:
       - "classes/com/springapp/mvc/controller/TestController.class"
-#  - name: "team/service-c.git"
-#    copy_list:
-#      - "docs/manual.md"
+      - "classes/com/springapp/mvc/controller/TestController.class"
+      - "classes/com/springapp/mvc/controller/TestController1.class"
+      - "classes/com/springapp/mvc/controller/TestController1.class"
+      - "classes/com/springapp/mvc/controller/TestController1.class"
+  - name: "jeon0428k/jrebel-license-server.git"
+    execute: "stop"
+    git_mode: "clean"
+    build_file: "E:/deploy/files/jrebel-license-server.xml"
+    transform_path:
+      - ["jrebel-license-server/src", "test"]
+    worklist_prefixes:
+      - "src/main"
+    copy_list:
+      - "src/main/java/com/imjcker/jrebel/JrebelApplication.java"
+      - "src/main/resources/application.yml"

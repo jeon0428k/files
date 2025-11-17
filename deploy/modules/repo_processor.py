@@ -2,84 +2,123 @@ import shutil
 import subprocess
 from pathlib import Path
 
+
 class RepoProcessor:
-    def __init__(self, git_manager, file_manager, repo_base_dir: str, ant_cmd: str):
+    def __init__(self, git_manager, file_manager, repo_base_dir, ant_cmd):
         self.git = git_manager
-        self.git.fm = file_manager  # Git 로그 기록용
         self.fm = file_manager
-        self.repo_base_dir = Path(repo_base_dir).resolve()
+        self.repo_base_dir = Path(repo_base_dir)
         self.ant_cmd = ant_cmd
 
     def process_repo(self, repo_info: dict):
         repo_path = repo_info["name"]
-        copy_list = repo_info.get("copy_list", [])
-        transform_path = repo_info.get("transform_path", [])
-        build_file = repo_info.get("build_file")
+        repo_name = Path(repo_path).stem
+
+        execute = repo_info.get("execute", "all").lower()
         git_mode = repo_info.get("git_mode", "pull")
+        build_file = repo_info.get("build_file")
+        transform_path = repo_info.get("transform_path", [])
 
-        repo_name = Path(repo_path).name
-        if repo_name.endswith(".git"):
-            repo_name = repo_name[:-4]
+        unique_copy_list = repo_info.get("unique_copy_list", [])
+        raw_copy_list = repo_info.get("raw_copy_list", [])
+        copy_count_map = repo_info.get("copy_count_map", {})
 
-        # ================= backup (session log 생성 전) =================
+        # ALL 모드일 때만 세션 로그 저장
+        # git/build/copy/check/stop 모드에서는 세션 로그가 생성되지 않음
+        self.fm.enable_session_log = (execute == "all")
+
+        # copy_dir 백업 (최초 1회)
         self.fm.backup_copy_target()
 
-        # session log 시작
-        self.fm.append_log(repo_name, f"🚀 처리 시작: {repo_name}")
-        self.fm.session_log(repo_name, f"🚀 처리 시작: {repo_name}")
+        # 실행 모드 출력 (전체로그 + 세션로그(ALL 모드) + 콘솔)
+        mode_msg = f"Execution mode: {execute}"
+        self.fm.dual_log(repo_name, mode_msg)
 
-        # Git clone/pull
-        repo_dir = self.git.clone_or_pull(repo_path, self.repo_base_dir, git_mode)
+        # -------------------- Git 단계 --------------------
+        if execute in ["all", "git"]:
+            repo_dir = self.git.clone_or_pull(repo_path, self.repo_base_dir, git_mode)
 
-        # build_file 확인
-        if not build_file:
-            msg = f"❌ build_file 지정 없음. {repo_name} 처리 중단"
-            self.fm.append_log(repo_name, msg)
-            self.fm.session_log(repo_name, msg)
-            return
+            # build_file 복사
+            if build_file:
+                bf = Path(build_file).resolve()
+                if bf.exists():
+                    dest = repo_dir / bf.name
+                    shutil.copy2(bf, dest)
 
-        build_file_path = Path(build_file).resolve()
-        if not build_file_path.exists():
-            msg = f"❌ 지정된 build_file 없음: {build_file_path}"
-            self.fm.append_log(repo_name, msg)
-            self.fm.session_log(repo_name, msg)
-            return
+                    self.fm.dual_log(repo_name, f"Build file copied: {dest}")
 
-        # build_file 복사
-        dest_build_file = repo_dir / build_file_path.name
-        shutil.copy2(build_file_path, dest_build_file)
-        msg = f"📄 build_file 복사 완료: {dest_build_file}"
-        self.fm.append_log(repo_name, msg)
-        self.fm.session_log(repo_name, msg)
+            if execute == "git":
+                return
 
-        # Ant 빌드
-        try:
-            subprocess.run([self.ant_cmd, "-f", str(dest_build_file)], cwd=repo_dir, check=True)
-            msg = "✅ 빌드 성공"
-            self.fm.append_log(repo_name, msg)
-            self.fm.session_log(repo_name, msg)
-        except FileNotFoundError:
-            msg = f"❌ Ant 실행 파일을 찾을 수 없음: {self.ant_cmd}"
-            self.fm.append_log(repo_name, msg)
-            self.fm.session_log(repo_name, msg)
-            return
-        except subprocess.CalledProcessError as e:
-            msg = f"❌ 빌드 실패: {e}"
-            self.fm.append_log(repo_name, msg)
-            self.fm.session_log(repo_name, msg)
-            return
+        # Git 단계 후 repo_dir 재설정
+        repo_dir = self.repo_base_dir / repo_name
 
-        # build 폴더 기준 copy
+        # -------------------- Build 단계 --------------------
+        if execute in ["all", "build"]:
+            if not build_file:
+                self.fm.dual_log(repo_name, "Build file missing → cannot execute build")
+                return
+
+            bf_path = repo_dir / Path(build_file).name
+
+            try:
+                subprocess.run([self.ant_cmd, "-f", str(bf_path)], cwd=repo_dir, check=True)
+                self.fm.dual_log(repo_name, "Build succeeded")
+            except Exception as e:
+                self.fm.dual_log(repo_name, f"Build failed: {e}")
+                return
+
+            if execute == "build":
+                return
+
+        # -------------------- 파일 존재 여부 체크 --------------------
         build_dir = repo_dir / "build"
-        exist_files, missing_files = self.fm.check_copy_files_exist(build_dir, copy_list)
+        exist_files, missing_files = self.fm.check_copy_files_exist(build_dir, unique_copy_list)
 
-        if missing_files:
-            msg = f"⚠️ 존재하지 않는 파일 발견: {len(missing_files)}개"
-            print(msg)
-            for f in missing_files:
-                print(f"   - {f}")
-            self.fm.append_log(repo_name, msg + "\n" + "\n".join(missing_files))
-            self.fm.session_log(repo_name, msg + "\n" + "\n".join(missing_files))
+        raw_total = len(raw_copy_list)
+        unique_total = len(unique_copy_list)
 
-        if exist_files:
+        exist_unique = len(exist_files)
+        missing_unique = len(missing_files)
+
+        exist_raw = sum(copy_count_map.get(x, 0) for x in exist_files)
+        missing_raw = sum(copy_count_map.get(x, 0) for x in missing_files)
+
+        # -------------------- copy 단계 --------------------
+        if execute == "copy":
             self.fm.copy_files(build_dir, repo_name, exist_files, transform_path)
+
+            self.fm.log_file_check_summary(
+                repo_name, exist_files, missing_files,
+                raw_total, unique_total,
+                exist_raw, exist_unique,
+                missing_raw, missing_unique,
+                copy_count_map
+            )
+            return
+
+        # -------------------- check 단계 --------------------
+        if execute == "check":
+            self.fm.log_file_check_summary(
+                repo_name, exist_files, missing_files,
+                raw_total, unique_total,
+                exist_raw, exist_unique,
+                missing_raw, missing_unique,
+                copy_count_map
+            )
+            return
+
+        # -------------------- all 단계 --------------------
+        if execute == "all":
+            # 존재하는 파일만 copy 수행
+            self.fm.copy_files(build_dir, repo_name, exist_files, transform_path)
+
+            # 파일 체크 결과 요약/상세 로그
+            self.fm.log_file_check_summary(
+                repo_name, exist_files, missing_files,
+                raw_total, unique_total,
+                exist_raw, exist_unique,
+                missing_raw, missing_unique,
+                copy_count_map
+            )
+            return
