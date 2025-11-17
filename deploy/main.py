@@ -8,7 +8,7 @@ from modules.file_manager import FileManager
 from modules.repo_processor import RepoProcessor
 
 
-# worklist.txt 파일 읽기
+# worklist 파일 읽기
 def load_worklist(worklist_path: Path) -> list[str]:
     if not worklist_path.exists():
         raise FileNotFoundError(f"Worklist file not found: {worklist_path}")
