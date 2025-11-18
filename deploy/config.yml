@@ -19,13 +19,13 @@ github:
 # --------------------------------------------------------------------
 paths:
   # Git clone/pull 작업 공간 (절대/상대 모두 가능)
-  repo_dir: "E:/deploy/repo"
+  repo_dir: "D:/deploy/repo"
   # build 결과물을 copy 하는 폴더
-  copy_dir: "E:/deploy/copy"
+  copy_dir: "D:/deploy/copy"
   # copy 폴더 백업 저장 위치
-  back_dir: "E:/deploy/backup"
+  back_dir: "D:/deploy/backup"
   # repository별 전체 로그 저장 위치
-  logs_dir: "E:/deploy"
+  logs_dir: "D:/deploy"
   # Ant 실행 경로 (절대경로)
   ant_cmd: "D:/program/apache-ant-1.10.15/bin/ant.bat"
   # is_worklist = true 일 때만 사용
@@ -51,9 +51,16 @@ paths:
 # --------------------------------------------------------------------
 repositories:
   - name: "jeon0428k/SpringMVC-MyBatis-Demo.git"
-    execute: "all"
+    branch: "main"
+    execute:
+#      - "stop"
+#      - "all"
+      - "git"
+      - "build"
+      - "copy"
+      - "check"
     git_mode: "pull"
-    build_file: "E:/deploy/files/SpringMVC-MyBatis-Demo.xml"
+    build_file: "D:/deploy/files/SpringMVC-MyBatis-Demo.xml"
     transform_path:
       - ["SpringMVC-MyBatis-Demo/classes", "test/etc"]
     worklist_prefixes:
@@ -65,9 +72,16 @@ repositories:
       - "classes/com/springapp/mvc/controller/TestController1.class"
       - "classes/com/springapp/mvc/controller/TestController1.class"
   - name: "jeon0428k/jrebel-license-server.git"
-    execute: "stop"
+    branch: "main"
+    execute:
+      - "stop"
+      - "all"
+      - "git"
+      - "build"
+      - "copy"
+      - "check"
     git_mode: "clean"
-    build_file: "E:/deploy/files/jrebel-license-server.xml"
+    build_file: "D:/deploy/files/jrebel-license-server.xml"
     transform_path:
       - ["jrebel-license-server/src", "test"]
     worklist_prefixes:
