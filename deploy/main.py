@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from collections import Counter
+from datetime import datetime
 
 from modules.util import load_config
 from modules.git_manager import GitManager
@@ -12,7 +13,6 @@ from modules.repo_processor import RepoProcessor
 # worklist 파일 읽기
 # -------------------------------------------------------------
 def load_worklist(worklist_path: Path) -> list[str]:
-    """worklist 파일에서 줄 단위 목록을 읽어 리스트 반환"""
     if not worklist_path.exists():
         raise FileNotFoundError(f"Worklist file not found: {worklist_path}")
     with open(worklist_path, "r", encoding="utf-8") as f:
@@ -20,7 +20,7 @@ def load_worklist(worklist_path: Path) -> list[str]:
 
 
 # -------------------------------------------------------------
-# copy_list 를 분석하여 raw/unique/중복 개수 map 생성
+# copy_list 분석
 # -------------------------------------------------------------
 def analyze_copy_list(repo: dict, copy_list: list[str]):
     repo["raw_copy_list"] = list(copy_list)
@@ -29,7 +29,7 @@ def analyze_copy_list(repo: dict, copy_list: list[str]):
 
 
 # -------------------------------------------------------------
-# worklist 를 repository별로 prefix 기준으로 분배
+# worklist 분배
 # -------------------------------------------------------------
 def distribute_worklist_to_repos(repos: list[dict], worklist: list[str]):
     for repo in repos:
@@ -44,7 +44,7 @@ def distribute_worklist_to_repos(repos: list[dict], worklist: list[str]):
 
 
 # -------------------------------------------------------------
-# repository의 copy_list를 config에서 직접 로드
+# config copy_list 로드
 # -------------------------------------------------------------
 def load_copy_list_from_config(repo: dict):
     copy_list = repo.get("copy_list", []) or []
@@ -52,7 +52,7 @@ def load_copy_list_from_config(repo: dict):
 
 
 # -------------------------------------------------------------
-# repository 단일 실행 래퍼(예외 처리용)
+# repository 단일 실행 래퍼
 # -------------------------------------------------------------
 def process_single_repo(processor: RepoProcessor, repo: dict):
     repo_name = Path(repo.get("name")).stem
@@ -63,68 +63,198 @@ def process_single_repo(processor: RepoProcessor, repo: dict):
 
 
 # -------------------------------------------------------------
+# SUMMARY 기능 추가
+# -------------------------------------------------------------
+### SUMMARY ADDITIONS START
+def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None):
+    summary_file = copy_dir / "summary.log"
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header_time = f"> {ts}"
+
+    lines = [header_time, ""]
+    console_lines = [header_time, ""]
+
+    all_raw_items = []
+    all_unique_items = set()
+
+    others_raw = []
+    others_unique = set()
+
+    # 모든 repo가 사용하는 항목 집합
+    repo_items = set()
+
+    for repo in repos:
+        repo_name = Path(repo["name"]).stem
+        exec_list = repo.get("execute", [])
+
+        # summary 대상 repo 판단
+        is_target = any(x in exec_list for x in ("all", "copy"))
+
+        raw_list = repo.get("raw_copy_list", [])
+        exist_list = repo.get("exist_files", [])
+        missing_list = repo.get("missing_files", [])
+
+        # raw/unique 개수 집계
+        raw_count = len(raw_list)
+        unique_count = len(set(raw_list))
+        exist_raw = sum(repo["copy_count_map"].get(x, 0) for x in exist_list)
+        exist_unique = len(set(exist_list))
+        missing_raw = sum(repo["copy_count_map"].get(x, 0) for x in missing_list)
+        missing_unique = len(set(missing_list))
+
+        repo_items |= set(raw_list)
+
+        if not is_target:
+            continue
+
+        lines.append(f"===== {repo_name} =====")
+        console_lines.append(f"===== {repo_name} =====")
+
+        exec_str = ", ".join(exec_list)
+        lines.append(f"Execution mode: {exec_str}")
+        console_lines.append(f"Execution mode: {exec_str}")
+
+        for item in raw_list:
+            mark = "[O]" if item in exist_list else "[X]"
+            msg = f"{mark} {item}"
+            lines.append(msg)
+            console_lines.append(msg)
+
+        summary_line = (
+            f"{raw_count}({unique_count}), exists: {exist_raw}"
+            f"({exist_unique}), missing: {missing_raw}({missing_unique})"
+        )
+        lines.append(summary_line)
+        console_lines.append(summary_line)
+        lines.append("")
+        console_lines.append("")
+
+        # 전체 summary 집계용
+        all_raw_items.extend(raw_list)
+        all_unique_items |= set(raw_list)
+
+    # others 계산 (worklist 기반일 때만 의미 있음)
+    if worklist:
+        unknown = set(worklist) - repo_items
+        if unknown:
+            lines.append("===== others =====")
+            console_lines.append("===== others =====")
+
+            for item in sorted(unknown):
+                msg = f"[X] {item}"
+                lines.append(msg)
+                console_lines.append(msg)
+                others_raw.append(item)
+                others_unique.add(item)
+
+            lines.append(f"{len(others_raw)}({len(others_unique)})")
+            console_lines.append(f"{len(others_raw)}({len(others_unique)})")
+            lines.append("")
+            console_lines.append("")
+
+    # 전체 summary 출력
+    all_raw = len(all_raw_items) + len(others_raw)
+    all_unique = len(all_unique_items | others_unique)
+
+    # 존재/미존재 집계
+    total_exist_raw = sum(
+        repo["copy_count_map"].get(x, 0)
+        for repo in repos
+        for x in repo.get("exist_files", [])
+    )
+    total_exist_unique = len(
+        set(x for repo in repos for x in repo.get("exist_files", []))
+    )
+
+    total_missing_raw = sum(
+        repo["copy_count_map"].get(x, 0)
+        for repo in repos
+        for x in repo.get("missing_files", [])
+    )
+    total_missing_unique = len(
+        set(x for repo in repos for x in repo.get("missing_files", []))
+    )
+
+    lines.append("===== summary =====")
+    console_lines.append("===== summary =====")
+
+    summary_line = (
+        f"{all_raw}({all_unique}), exists: {total_exist_raw}"
+        f"({total_exist_unique}), missing: {total_missing_raw}"
+        f"({total_missing_unique}), others: {len(others_raw)}({len(others_unique)})"
+    )
+
+    lines.append(summary_line)
+    console_lines.append(summary_line)
+
+    # summary.log 저장
+    with open(summary_file, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    # 콘솔 출력
+    print("\n".join(console_lines))
+### SUMMARY ADDITIONS END
+
+
+# -------------------------------------------------------------
 # main
 # -------------------------------------------------------------
 def main():
     config = load_config("config.yml")
 
-    # 실행 모드 로드
     is_single = config.get("is_single", False)
     is_worklist = config.get("is_worklist", False)
 
-    # 전역 Git 설정
     server = config["github"]["server"]
     token = config["github"]["token"]
     global_branch = config["github"]["branch"]
 
-    # 경로 설정
     repo_base_dir = Path(config["paths"]["repo_dir"]).resolve()
     copy_dir = Path(config["paths"]["copy_dir"]).resolve()
     logs_dir = Path(config["paths"]["logs_dir"]).resolve()
     back_dir = Path(config["paths"]["back_dir"]).resolve()
     ant_cmd = config["paths"]["ant_cmd"]
 
-    # worklist 파일 경로
     worklist_path_str = config["paths"].get("worklist_file", "worklist.txt")
     worklist_file = Path(worklist_path_str).resolve()
 
-    # 필요한 디렉토리 생성
     for d in [repo_base_dir, copy_dir, logs_dir, back_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
     repos = config["repositories"]
 
-    # worklist 모드 처리
     if is_worklist:
         worklist = load_worklist(worklist_file)
         distribute_worklist_to_repos(repos, worklist)
     else:
+        worklist = None
         for repo in repos:
             load_copy_list_from_config(repo)
 
-    # Manager 생성
     fm = FileManager(copy_dir, logs_dir, back_dir)
     gm = GitManager(server, token, global_branch, fm)
     processor = RepoProcessor(gm, fm, repo_base_dir, ant_cmd, global_branch)
 
-    # 실행 제외: stop 조건은 process_repo 내부에서 실행됨
     exec_repos = repos
 
     if not exec_repos:
         print("No repository to execute.")
         return
 
-    # 순차 실행
+    # 순차
     if is_single:
         for repo in exec_repos:
             process_single_repo(processor, repo)
 
-    # 병렬 실행
+    # 병렬
     else:
         with ThreadPoolExecutor(max_workers=5) as exe:
             futures = [exe.submit(process_single_repo, processor, repo) for repo in exec_repos]
             for f in as_completed(futures):
                 f.result()
+
+    # 모든 repo 처리 후 summary 생성
+    write_summary(copy_dir, repos, worklist)
 
 
 if __name__ == "__main__":
