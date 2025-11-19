@@ -19,7 +19,15 @@ def normalize_path(path):
 
 
 # ---------------------------------------------------------
-#  Print directory tree (no emoji)
+#  Safe Graphviz ID 생성 (경로 → 안전한 문자열)
+# ---------------------------------------------------------
+def make_safe_id(path):
+    safe = path.replace("\\", "_").replace("/", "_").replace(":", "_")
+    return safe
+
+
+# ---------------------------------------------------------
+#  Print directory tree (English only, no emoji)
 # ---------------------------------------------------------
 def print_directory_tree(root_dir, folder_count, file_count):
     print(f"\n[Directory Tree] {normalize_path(root_dir)}\n")
@@ -52,8 +60,7 @@ def print_all_file_paths(root_dir, file_count):
 
 
 # ---------------------------------------------------------
-#  Generate directory tree PNG using Graphviz
-#  → 오류 발생해도 계속 진행되도록 try/except 적용
+#  Generate directory tree PNG using Graphviz (stylized)
 # ---------------------------------------------------------
 def generate_tree_image(root_dir, output_file, folder_count, file_count):
 
@@ -61,25 +68,66 @@ def generate_tree_image(root_dir, output_file, folder_count, file_count):
 
     try:
         graph = Digraph(format="png")
-        graph.attr("node", shape="folder")
 
-        # root node
+        # --- 전체 그래프 스타일 ---
+        graph.attr(
+            bgcolor="white",
+            rankdir="TB",
+            nodesep="0.35",
+            ranksep="0.55"
+        )
+
+        # --- 기본 노드 스타일 ---
+        graph.attr("node",
+            fontname="Arial",
+            fontsize="11",
+            color="#444444",
+            fontcolor="#1a1a1a"
+        )
+
+        # --- 루트 노드 생성 ---
+        root_id = make_safe_id(root_dir)
         root_label = os.path.basename(root_dir)
-        graph.node(root_dir, root_label)
+        graph.node(root_id, root_label,
+                   shape="folder",
+                   style="filled,bold",
+                   fillcolor="#e0f0ff",
+                   color="#004a80")
 
         for current_path, dirs, files in os.walk(root_dir):
             folder_count[0] += 1
 
-            graph.node(current_path, os.path.basename(current_path))
+            current_id = make_safe_id(current_path)
+            graph.node(
+                current_id,
+                os.path.basename(current_path),
+                shape="folder",
+                style="filled",
+                fillcolor="#e9f4ff",      # 연한 파란색
+                color="#007acc"
+            )
 
             parent = os.path.dirname(current_path)
             if parent != current_path:
-                graph.edge(parent, current_path)
+                parent_id = make_safe_id(parent)
+                graph.edge(parent_id, current_id, color="#777777")
 
+            # --- 파일 노드 ---
             for file in files:
                 file_path = os.path.join(current_path, file)
-                graph.node(file_path, file, shape="note")
-                graph.edge(current_path, file_path)
+                file_id = make_safe_id(file_path)
+
+                graph.node(
+                    file_id,
+                    file,
+                    shape="note",
+                    style="filled",
+                    fillcolor="#fff7cc",
+                    color="#cc9900",
+                    fontcolor="#4a3c00"
+                )
+
+                graph.edge(current_id, file_id, color="#777777")
                 file_count[0] += 1
 
         graph.render(output_file, cleanup=True)
@@ -112,7 +160,7 @@ if __name__ == "__main__":
         generate_tree_image(dir_path, output_name, total_folder_count, total_file_count)
 
     # -----------------------------------------------------
-    # Final summary (only once)
+    # Final summary (print only once)
     # -----------------------------------------------------
     print("\n================ Summary ================\n")
     print(f"Total folders: {total_folder_count[0]}")
