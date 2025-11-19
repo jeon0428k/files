@@ -1,7 +1,7 @@
 import os
 import yaml
 import hashlib
-from graphviz import Digraph
+from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------
 #  Load config.yml
@@ -20,35 +20,38 @@ def normalize_path(path):
 
 
 # ---------------------------------------------------------
-#  Safe Graphviz Node ID 생성 (해시 기반)
+#  Build tree text (for console and image)
 # ---------------------------------------------------------
-def make_safe_id(path):
-    h = hashlib.sha256(path.encode("utf-8")).hexdigest()
-    return "N" + h[:12]   # 길이는 12자리 정도면 충분하며 충돌 없음
-
-
-# ---------------------------------------------------------
-#  Print directory tree
-# ---------------------------------------------------------
-def print_directory_tree(root_dir, folder_count, file_count):
-    print(f"\n[Directory Tree] {normalize_path(root_dir)}\n")
+def build_tree_text(root_dir, folder_count, file_count):
+    lines = []
+    lines.append(f"{normalize_path(root_dir)}")
 
     for current_path, dirs, files in os.walk(root_dir):
-        current_path_n = normalize_path(current_path)
         level = current_path.replace(root_dir, "").count(os.sep)
         indent = " " * 4 * level
-        print(f"{indent}{os.path.basename(current_path_n)}\\")
 
         folder_count[0] += 1
+        lines.append(f"{indent}{os.path.basename(current_path)}\\")
 
         sub_indent = " " * 4 * (level + 1)
+
         for file in files:
-            print(f"{sub_indent}- {file}")
             file_count[0] += 1
+            lines.append(f"{sub_indent}- {file}")
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------
-#  Print file list
+#  Print directory tree in console
+# ---------------------------------------------------------
+def print_directory_tree(tree_text):
+    print("\n[Directory Tree]\n")
+    print(tree_text)
+
+
+# ---------------------------------------------------------
+#  Print all files (console)
 # ---------------------------------------------------------
 def print_all_file_paths(root_dir, file_count):
     print(f"\n[File List Under] {normalize_path(root_dir)}\n")
@@ -61,88 +64,28 @@ def print_all_file_paths(root_dir, file_count):
 
 
 # ---------------------------------------------------------
-#  Generate directory tree image (Graphviz + HASH SAFE ID)
+#  Simple TEXT → IMAGE (PIL)
 # ---------------------------------------------------------
-def generate_tree_image(root_dir, output_file, folder_count, file_count):
+def create_text_image(text, output_file):
 
-    print(f"\n[Generating Tree Image] {normalize_path(root_dir)}")
+    lines = text.split("\n")
+    font = ImageFont.load_default()
 
-    try:
-        graph = Digraph(format="png")
+    max_width = max(font.getbbox(line)[2] for line in lines) + 20
+    line_height = font.getbbox("A")[3] + 6
 
-        # Graph style
-        graph.attr(
-            bgcolor="white",
-            rankdir="TB",
-            nodesep="0.35",
-            ranksep="0.55"
-        )
+    img_height = line_height * len(lines) + 20
 
-        # Default node style
-        graph.attr(
-            "node",
-            fontname="Arial",
-            fontsize="11",
-            color="#444444",
-            fontcolor="#1a1a1a"
-        )
+    img = Image.new("RGB", (max_width, img_height), "white")
+    draw = ImageDraw.Draw(img)
 
-        # Root node
-        root_id = make_safe_id(root_dir)
-        root_label = os.path.basename(root_dir)
-        graph.node(
-            root_id,
-            root_label,
-            shape="folder",
-            style="filled,bold",
-            fillcolor="#e0f0ff",
-            color="#004a80"
-        )
+    y = 10
+    for line in lines:
+        draw.text((10, y), line, font=font, fill="black")
+        y += line_height
 
-        for current_path, dirs, files in os.walk(root_dir):
-            folder_count[0] += 1
-
-            current_id = make_safe_id(current_path)
-
-            graph.node(
-                current_id,
-                os.path.basename(current_path),
-                shape="folder",
-                style="filled",
-                fillcolor="#e9f4ff",
-                color="#007acc"
-            )
-
-            parent = os.path.dirname(current_path)
-            if parent != current_path:
-                parent_id = make_safe_id(parent)
-                graph.edge(parent_id, current_id, color="#777777")
-
-            for file in files:
-                file_path = os.path.join(current_path, file)
-                file_id = make_safe_id(file_path)
-
-                graph.node(
-                    file_id,
-                    file,
-                    shape="note",
-                    style="filled",
-                    fillcolor="#fff7cc",
-                    color="#cc9900",
-                    fontcolor="#4a3c00"
-                )
-
-                graph.edge(current_id, file_id, color="#777777")
-
-                file_count[0] += 1
-
-        graph.render(output_file, cleanup=True)
-        print(f"Tree image created: {output_file}")
-
-    except Exception as e:
-        print(f"[Graphviz Error] Failed to create image for: {normalize_path(root_dir)}")
-        print(f"Reason: {str(e)}")
-        print("Skipping image generation and continuing...\n")
+    img.save(output_file)
+    print(f"Tree image created: {output_file}")
 
 
 # ---------------------------------------------------------
@@ -159,13 +102,16 @@ if __name__ == "__main__":
             print(f"\n[SKIP] Path does not exist: {normalize_path(dir_path)}")
             continue
 
-        print_directory_tree(dir_path, total_folder_count, total_file_count)
+        tree_text = build_tree_text(dir_path, total_folder_count, total_file_count)
+
+        print_directory_tree(tree_text)
         print_all_file_paths(dir_path, total_file_count)
 
+        # Create simple tree image
         output_name = f"tree_{os.path.basename(dir_path)}.png"
-        generate_tree_image(dir_path, output_name, total_folder_count, total_file_count)
+        create_text_image(tree_text, output_name)
 
-    # final summary
+    # Summary
     print("\n================ Summary ================\n")
     print(f"Total folders: {total_folder_count[0]}")
     print(f"Total files: {total_file_count[0]}")
