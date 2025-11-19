@@ -19,7 +19,7 @@ def normalize_path(path):
 
 
 # ---------------------------------------------------------
-#  Print directory tree (no emoji, English only)
+#  Print directory tree (no emoji)
 # ---------------------------------------------------------
 def print_directory_tree(root_dir, folder_count, file_count):
     print(f"\n[Directory Tree] {normalize_path(root_dir)}\n")
@@ -39,7 +39,7 @@ def print_directory_tree(root_dir, folder_count, file_count):
 
 
 # ---------------------------------------------------------
-#  Print file paths (no emoji, English only)
+#  Print full file paths
 # ---------------------------------------------------------
 def print_all_file_paths(root_dir, file_count):
     print(f"\n[File List Under] {normalize_path(root_dir)}\n")
@@ -52,33 +52,43 @@ def print_all_file_paths(root_dir, file_count):
 
 
 # ---------------------------------------------------------
-#  Generate directory tree image (Graphviz)
+#  Generate directory tree PNG using Graphviz
+#  → 오류 발생해도 계속 진행되도록 try/except 적용
 # ---------------------------------------------------------
 def generate_tree_image(root_dir, output_file, folder_count, file_count):
-    graph = Digraph(format="png")
-    graph.attr("node", shape="folder")
 
-    # root node
-    root_label = os.path.basename(root_dir)
-    graph.node(root_dir, root_label)
+    print(f"\n[Generating Tree Image] {normalize_path(root_dir)}")
 
-    for current_path, dirs, files in os.walk(root_dir):
-        folder_count[0] += 1
+    try:
+        graph = Digraph(format="png")
+        graph.attr("node", shape="folder")
 
-        graph.node(current_path, os.path.basename(current_path))
+        # root node
+        root_label = os.path.basename(root_dir)
+        graph.node(root_dir, root_label)
 
-        parent = os.path.dirname(current_path)
-        if parent != current_path:
-            graph.edge(parent, current_path)
+        for current_path, dirs, files in os.walk(root_dir):
+            folder_count[0] += 1
 
-        for file in files:
-            file_path = os.path.join(current_path, file)
-            graph.node(file_path, file, shape="note")
-            graph.edge(current_path, file_path)
-            file_count[0] += 1
+            graph.node(current_path, os.path.basename(current_path))
 
-    graph.render(output_file, cleanup=True)
-    print(f"\nTree image created: {output_file}")
+            parent = os.path.dirname(current_path)
+            if parent != current_path:
+                graph.edge(parent, current_path)
+
+            for file in files:
+                file_path = os.path.join(current_path, file)
+                graph.node(file_path, file, shape="note")
+                graph.edge(current_path, file_path)
+                file_count[0] += 1
+
+        graph.render(output_file, cleanup=True)
+        print(f"Tree image created: {output_file}")
+
+    except Exception as e:
+        print(f"[Graphviz Error] Failed to create image for: {normalize_path(root_dir)}")
+        print(f"Reason: {str(e)}")
+        print("Skipping image generation and continuing...\n")
 
 
 # ---------------------------------------------------------
@@ -102,7 +112,7 @@ if __name__ == "__main__":
         generate_tree_image(dir_path, output_name, total_folder_count, total_file_count)
 
     # -----------------------------------------------------
-    # Final summary (print only once)
+    # Final summary (only once)
     # -----------------------------------------------------
     print("\n================ Summary ================\n")
     print(f"Total folders: {total_folder_count[0]}")
