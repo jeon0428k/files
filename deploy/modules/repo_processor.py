@@ -165,6 +165,10 @@ class RepoProcessor:
         # -------------------- File 존재 체크 --------------------
         exist_files, missing_files = self.fm.check_copy_files_exist(build_dir, unique_copy_list)
 
+        # summary 기능을 위해 추가
+        repo_info["exist_files"] = exist_files
+        repo_info["missing_files"] = missing_files
+
         # -------------------- Copy --------------------
         self.fm.copy_files(build_dir, repo_name, exist_files, transform_path)
 
