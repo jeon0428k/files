@@ -151,8 +151,8 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
     if worklist:
         unknown = set(worklist) - repo_items
         if unknown:
-            lines.append("===== others =====")
-            console_lines.append("===== others =====")
+            lines.append("===== unknown =====")
+            console_lines.append("===== unknown =====")
 
             for item in sorted(unknown):
                 raw_cnt = 1
@@ -197,7 +197,7 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         f"total: {all_raw}({all_unique}), "
         f"exists: {total_exist_raw}({total_exist_unique}), "
         f"missing: {total_missing_raw}({total_missing_unique}), "
-        f"others: {len(others_raw)}({len(others_unique)})"
+        f"unknown: {len(others_raw)}({len(others_unique)})"
     )
 
     lines.append(summary_final)
