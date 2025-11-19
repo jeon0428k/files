@@ -1,5 +1,6 @@
 import os
 import yaml
+import hashlib
 from graphviz import Digraph
 
 # ---------------------------------------------------------
@@ -19,15 +20,15 @@ def normalize_path(path):
 
 
 # ---------------------------------------------------------
-#  Safe Graphviz ID 생성 (경로 → 안전한 문자열)
+#  Safe Graphviz Node ID 생성 (해시 기반)
 # ---------------------------------------------------------
 def make_safe_id(path):
-    safe = path.replace("\\", "_").replace("/", "_").replace(":", "_")
-    return safe
+    h = hashlib.sha256(path.encode("utf-8")).hexdigest()
+    return "N" + h[:12]   # 길이는 12자리 정도면 충분하며 충돌 없음
 
 
 # ---------------------------------------------------------
-#  Print directory tree (English only, no emoji)
+#  Print directory tree
 # ---------------------------------------------------------
 def print_directory_tree(root_dir, folder_count, file_count):
     print(f"\n[Directory Tree] {normalize_path(root_dir)}\n")
@@ -47,7 +48,7 @@ def print_directory_tree(root_dir, folder_count, file_count):
 
 
 # ---------------------------------------------------------
-#  Print full file paths
+#  Print file list
 # ---------------------------------------------------------
 def print_all_file_paths(root_dir, file_count):
     print(f"\n[File List Under] {normalize_path(root_dir)}\n")
@@ -60,7 +61,7 @@ def print_all_file_paths(root_dir, file_count):
 
 
 # ---------------------------------------------------------
-#  Generate directory tree PNG using Graphviz (stylized)
+#  Generate directory tree image (Graphviz + HASH SAFE ID)
 # ---------------------------------------------------------
 def generate_tree_image(root_dir, output_file, folder_count, file_count):
 
@@ -69,7 +70,7 @@ def generate_tree_image(root_dir, output_file, folder_count, file_count):
     try:
         graph = Digraph(format="png")
 
-        # --- 전체 그래프 스타일 ---
+        # Graph style
         graph.attr(
             bgcolor="white",
             rankdir="TB",
@@ -77,33 +78,38 @@ def generate_tree_image(root_dir, output_file, folder_count, file_count):
             ranksep="0.55"
         )
 
-        # --- 기본 노드 스타일 ---
-        graph.attr("node",
+        # Default node style
+        graph.attr(
+            "node",
             fontname="Arial",
             fontsize="11",
             color="#444444",
             fontcolor="#1a1a1a"
         )
 
-        # --- 루트 노드 생성 ---
+        # Root node
         root_id = make_safe_id(root_dir)
         root_label = os.path.basename(root_dir)
-        graph.node(root_id, root_label,
-                   shape="folder",
-                   style="filled,bold",
-                   fillcolor="#e0f0ff",
-                   color="#004a80")
+        graph.node(
+            root_id,
+            root_label,
+            shape="folder",
+            style="filled,bold",
+            fillcolor="#e0f0ff",
+            color="#004a80"
+        )
 
         for current_path, dirs, files in os.walk(root_dir):
             folder_count[0] += 1
 
             current_id = make_safe_id(current_path)
+
             graph.node(
                 current_id,
                 os.path.basename(current_path),
                 shape="folder",
                 style="filled",
-                fillcolor="#e9f4ff",      # 연한 파란색
+                fillcolor="#e9f4ff",
                 color="#007acc"
             )
 
@@ -112,7 +118,6 @@ def generate_tree_image(root_dir, output_file, folder_count, file_count):
                 parent_id = make_safe_id(parent)
                 graph.edge(parent_id, current_id, color="#777777")
 
-            # --- 파일 노드 ---
             for file in files:
                 file_path = os.path.join(current_path, file)
                 file_id = make_safe_id(file_path)
@@ -128,6 +133,7 @@ def generate_tree_image(root_dir, output_file, folder_count, file_count):
                 )
 
                 graph.edge(current_id, file_id, color="#777777")
+
                 file_count[0] += 1
 
         graph.render(output_file, cleanup=True)
@@ -159,9 +165,7 @@ if __name__ == "__main__":
         output_name = f"tree_{os.path.basename(dir_path)}.png"
         generate_tree_image(dir_path, output_name, total_folder_count, total_file_count)
 
-    # -----------------------------------------------------
-    # Final summary (print only once)
-    # -----------------------------------------------------
+    # final summary
     print("\n================ Summary ================\n")
     print(f"Total folders: {total_folder_count[0]}")
     print(f"Total files: {total_file_count[0]}")
