@@ -84,16 +84,14 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
     for repo in repos:
         repo_name = Path(repo["name"]).stem
         exec_list = repo.get("execute", [])
-
-        # summary 적용 repo(all, copy)
         is_target = any(x in exec_list for x in ("all", "copy"))
 
         raw_list = repo.get("raw_copy_list", [])
-        exist_list = repo.get("exist_files", [])
-        missing_list = repo.get("missing_files", [])
         count_map = repo.get("copy_count_map", {})
 
-        # raw/unique count
+        exist_list = repo.get("exist_files", [])
+        missing_list = repo.get("missing_files", [])
+
         raw_count = len(raw_list)
         unique_count = len(set(raw_list))
         exist_raw = sum(count_map.get(x, 0) for x in exist_list)
@@ -113,15 +111,26 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         lines.append(f"Execution mode: {exec_str}")
         console_lines.append(f"Execution mode: {exec_str}")
 
-        # [O]/[X] + raw_cnt 출력
-        for item in raw_list:
+        # -------------------------------
+        # log_file_check_summary() 동일 방식
+        # 존재 파일 먼저 → 정렬 출력
+        # -------------------------------
+        for item in sorted(set(exist_list)):
             raw_cnt = count_map.get(item, 1)
-            mark = "[O]" if item in exist_list else "[X]"
-            msg = f"{mark} {item},{raw_cnt}"
+            msg = f"[O] {item},{raw_cnt}"
             lines.append(msg)
             console_lines.append(msg)
 
-        # 요약
+        # -------------------------------
+        # 미존재 파일 정렬 출력
+        # -------------------------------
+        for item in sorted(set(missing_list)):
+            raw_cnt = count_map.get(item, 1)
+            msg = f"[X] {item},{raw_cnt}"
+            lines.append(msg)
+            console_lines.append(msg)
+
+        # summary line
         summary_line = (
             f"total: {raw_count}({unique_count}), "
             f"exists: {exist_raw}({exist_unique}), "
@@ -133,11 +142,12 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         lines.append("")
         console_lines.append("")
 
-        # 전체 summary 집계용
         all_raw_items.extend(raw_list)
         all_unique_items |= set(raw_list)
 
-    # others 블록
+    # -------------------------------
+    # others 처리 영역
+    # -------------------------------
     if worklist:
         unknown = set(worklist) - repo_items
         if unknown:
@@ -145,7 +155,7 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
             console_lines.append("===== others =====")
 
             for item in sorted(unknown):
-                raw_cnt = 1  # worklist는 raw = 1
+                raw_cnt = 1
                 msg = f"[X] {item},{raw_cnt}"
                 lines.append(msg)
                 console_lines.append(msg)
@@ -158,11 +168,10 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
             lines.append("")
             console_lines.append("")
 
-    # 전체 summary
     all_raw = len(all_raw_items) + len(others_raw)
     all_unique = len(all_unique_items | others_unique)
 
-    # repo 전체 exist/missing 집계
+    # 전체 exist / missing 수집
     total_exist_raw = sum(
         repo["copy_count_map"].get(x, 0)
         for repo in repos
@@ -194,11 +203,9 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
     lines.append(summary_final)
     console_lines.append(summary_final)
 
-    # summary.log 저장
     with open(summary_file, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    # 콘솔 출력
     print("\n".join(console_lines))
 
 
