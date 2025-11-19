@@ -30,6 +30,8 @@ paths:
   ant_cmd: "D:/program/apache-ant-1.10.15/bin/ant.bat"
   # is_worklist = true 일 때만 사용
   worklist_file: "./worklist.txt"
+  # 배포 완료 후 결과 파일 체크 경로
+  check_dir: "D:/deploy"
 
 # --------------------------------------------------------------------
 # repository 목록
