@@ -31,7 +31,10 @@ paths:
   # is_worklist = true 일 때만 사용
   worklist_file: "./worklist.txt"
   # 배포 완료 후 결과 파일 체크 경로
-  check_dir: "D:/deploy"
+  check_dirs:
+    - "D:/deploy"
+    - "D:/not_exists_path"
+    - "C:/projects/test"
 
 # --------------------------------------------------------------------
 # repository 목록

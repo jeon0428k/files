@@ -3,94 +3,108 @@ import yaml
 from graphviz import Digraph
 
 # ---------------------------------------------------------
-#  config.yml 읽기
+#  Load config.yml
 # ---------------------------------------------------------
 def load_config(config_path="config.yml"):
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    return cfg["path"]["check_dir"]
+    return cfg["paths"]["check_dirs"]
+
 
 # ---------------------------------------------------------
-#  디렉터리 트리 구조 텍스트 출력 + 개수 출력
+#  Normalize path (replace / with \)
 # ---------------------------------------------------------
-def print_directory_tree(root_dir):
-    print(f"\n[Directory Tree] {root_dir}\n")
+def normalize_path(path):
+    return path.replace("/", "\\")
 
-    folder_count = 0
-    file_count = 0
+
+# ---------------------------------------------------------
+#  Print directory tree (no emoji, English only)
+# ---------------------------------------------------------
+def print_directory_tree(root_dir, folder_count, file_count):
+    print(f"\n[Directory Tree] {normalize_path(root_dir)}\n")
 
     for current_path, dirs, files in os.walk(root_dir):
-        folder_count += 1  # 현재 폴더 카운트
-
+        current_path_n = normalize_path(current_path)
         level = current_path.replace(root_dir, "").count(os.sep)
         indent = " " * 4 * level
-        print(f"{indent}📁 {os.path.basename(current_path)}/")
+        print(f"{indent}{os.path.basename(current_path_n)}\\")
+
+        folder_count[0] += 1
 
         sub_indent = " " * 4 * (level + 1)
         for file in files:
             print(f"{sub_indent}- {file}")
-            file_count += 1
+            file_count[0] += 1
 
-    print(f"\n📌 총 폴더 수: {folder_count}, 총 파일 수: {file_count}\n")
 
 # ---------------------------------------------------------
-#  전체 파일 path 출력 + 개수 출력
+#  Print file paths (no emoji, English only)
 # ---------------------------------------------------------
-def print_all_file_paths(root_dir):
-    print(f"\n[File List Under] {root_dir}\n")
-
-    file_count = 0
+def print_all_file_paths(root_dir, file_count):
+    print(f"\n[File List Under] {normalize_path(root_dir)}\n")
 
     for current_path, dirs, files in os.walk(root_dir):
         for file in files:
-            full_path = os.path.join(current_path, file)
+            full_path = normalize_path(os.path.join(current_path, file))
             print(full_path)
-            file_count += 1
+            file_count[0] += 1
 
-    print(f"\n📌 총 파일 수: {file_count}\n")
 
 # ---------------------------------------------------------
-#  Graphviz 트리 이미지 생성 + 개수 출력
+#  Generate directory tree image (Graphviz)
 # ---------------------------------------------------------
-def generate_tree_image(root_dir, output_file="directory_tree.png"):
+def generate_tree_image(root_dir, output_file, folder_count, file_count):
     graph = Digraph(format="png")
     graph.attr("node", shape="folder")
 
-    folder_count = 0
-    file_count = 0
-
-    # 루트 노드 생성
+    # root node
     root_label = os.path.basename(root_dir)
     graph.node(root_dir, root_label)
 
     for current_path, dirs, files in os.walk(root_dir):
-        folder_count += 1
+        folder_count[0] += 1
 
-        current_label = os.path.basename(current_path)
-        graph.node(current_path, current_label)
+        graph.node(current_path, os.path.basename(current_path))
 
-        # 상위 폴더 연결
         parent = os.path.dirname(current_path)
         if parent != current_path:
             graph.edge(parent, current_path)
 
-        # 파일 연결
         for file in files:
             file_path = os.path.join(current_path, file)
             graph.node(file_path, file, shape="note")
             graph.edge(current_path, file_path)
-            file_count += 1
+            file_count[0] += 1
 
     graph.render(output_file, cleanup=True)
-    print(f"\n[✔] 트리 이미지 생성 완료: {output_file}")
-    print(f"📌 총 폴더 수: {folder_count}, 총 파일 수: {file_count}\n")
+    print(f"\nTree image created: {output_file}")
+
 
 # ---------------------------------------------------------
-#  메인 실행부
+#  Main
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    check_dir = load_config("config.yml")
+    check_dirs = load_config("config.yml")
 
-    print_directory_tree(check_dir)
-    print_all_file_paths(check_dir)
-    generate_tree_image(check_dir)
+    total_folder_count = [0]
+    total_file_count = [0]
+
+    for dir_path in check_dirs:
+        if not os.path.exists(dir_path):
+            print(f"\n[SKIP] Path does not exist: {normalize_path(dir_path)}")
+            continue
+
+        print_directory_tree(dir_path, total_folder_count, total_file_count)
+        print_all_file_paths(dir_path, total_file_count)
+
+        output_name = f"tree_{os.path.basename(dir_path)}.png"
+        generate_tree_image(dir_path, output_name, total_folder_count, total_file_count)
+
+    # -----------------------------------------------------
+    # Final summary (print only once)
+    # -----------------------------------------------------
+    print("\n================ Summary ================\n")
+    print(f"Total folders: {total_folder_count[0]}")
+    print(f"Total files: {total_file_count[0]}")
+    print("\n=========================================\n")
