@@ -63,9 +63,8 @@ def process_single_repo(processor: RepoProcessor, repo: dict):
 
 
 # -------------------------------------------------------------
-# SUMMARY 기능 추가
+# SUMMARY 기능
 # -------------------------------------------------------------
-### SUMMARY ADDITIONS START
 def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None):
     summary_file = copy_dir / "summary.log"
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -80,26 +79,26 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
     others_raw = []
     others_unique = set()
 
-    # 모든 repo가 사용하는 항목 집합
     repo_items = set()
 
     for repo in repos:
         repo_name = Path(repo["name"]).stem
         exec_list = repo.get("execute", [])
 
-        # summary 대상 repo 판단
+        # summary 적용 repo(all, copy)
         is_target = any(x in exec_list for x in ("all", "copy"))
 
         raw_list = repo.get("raw_copy_list", [])
         exist_list = repo.get("exist_files", [])
         missing_list = repo.get("missing_files", [])
+        count_map = repo.get("copy_count_map", {})
 
-        # raw/unique 개수 집계
+        # raw/unique count
         raw_count = len(raw_list)
         unique_count = len(set(raw_list))
-        exist_raw = sum(repo["copy_count_map"].get(x, 0) for x in exist_list)
+        exist_raw = sum(count_map.get(x, 0) for x in exist_list)
         exist_unique = len(set(exist_list))
-        missing_raw = sum(repo["copy_count_map"].get(x, 0) for x in missing_list)
+        missing_raw = sum(count_map.get(x, 0) for x in missing_list)
         missing_unique = len(set(missing_list))
 
         repo_items |= set(raw_list)
@@ -114,16 +113,21 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         lines.append(f"Execution mode: {exec_str}")
         console_lines.append(f"Execution mode: {exec_str}")
 
+        # [O]/[X] + raw_cnt 출력
         for item in raw_list:
+            raw_cnt = count_map.get(item, 1)
             mark = "[O]" if item in exist_list else "[X]"
-            msg = f"{mark} {item}"
+            msg = f"{mark} {item},{raw_cnt}"
             lines.append(msg)
             console_lines.append(msg)
 
+        # 요약
         summary_line = (
-            f"{raw_count}({unique_count}), exists: {exist_raw}"
-            f"({exist_unique}), missing: {missing_raw}({missing_unique})"
+            f"total: {raw_count}({unique_count}), "
+            f"exists: {exist_raw}({exist_unique}), "
+            f"missing: {missing_raw}({missing_unique})"
         )
+
         lines.append(summary_line)
         console_lines.append(summary_line)
         lines.append("")
@@ -133,7 +137,7 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         all_raw_items.extend(raw_list)
         all_unique_items |= set(raw_list)
 
-    # others 계산 (worklist 기반일 때만 의미 있음)
+    # others 블록
     if worklist:
         unknown = set(worklist) - repo_items
         if unknown:
@@ -141,22 +145,24 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
             console_lines.append("===== others =====")
 
             for item in sorted(unknown):
-                msg = f"[X] {item}"
+                raw_cnt = 1  # worklist는 raw = 1
+                msg = f"[X] {item},{raw_cnt}"
                 lines.append(msg)
                 console_lines.append(msg)
                 others_raw.append(item)
                 others_unique.add(item)
 
-            lines.append(f"{len(others_raw)}({len(others_unique)})")
-            console_lines.append(f"{len(others_raw)}({len(others_unique)})")
+            summary_line = f"total: {len(others_raw)}({len(others_unique)})"
+            lines.append(summary_line)
+            console_lines.append(summary_line)
             lines.append("")
             console_lines.append("")
 
-    # 전체 summary 출력
+    # 전체 summary
     all_raw = len(all_raw_items) + len(others_raw)
     all_unique = len(all_unique_items | others_unique)
 
-    # 존재/미존재 집계
+    # repo 전체 exist/missing 집계
     total_exist_raw = sum(
         repo["copy_count_map"].get(x, 0)
         for repo in repos
@@ -178,14 +184,15 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
     lines.append("===== summary =====")
     console_lines.append("===== summary =====")
 
-    summary_line = (
-        f"{all_raw}({all_unique}), exists: {total_exist_raw}"
-        f"({total_exist_unique}), missing: {total_missing_raw}"
-        f"({total_missing_unique}), others: {len(others_raw)}({len(others_unique)})"
+    summary_final = (
+        f"total: {all_raw}({all_unique}), "
+        f"exists: {total_exist_raw}({total_exist_unique}), "
+        f"missing: {total_missing_raw}({total_missing_unique}), "
+        f"others: {len(others_raw)}({len(others_unique)})"
     )
 
-    lines.append(summary_line)
-    console_lines.append(summary_line)
+    lines.append(summary_final)
+    console_lines.append(summary_final)
 
     # summary.log 저장
     with open(summary_file, "w", encoding="utf-8") as f:
@@ -193,7 +200,6 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
 
     # 콘솔 출력
     print("\n".join(console_lines))
-### SUMMARY ADDITIONS END
 
 
 # -------------------------------------------------------------
@@ -223,6 +229,7 @@ def main():
 
     repos = config["repositories"]
 
+    # worklist 모드 처리
     if is_worklist:
         worklist = load_worklist(worklist_file)
         distribute_worklist_to_repos(repos, worklist)
@@ -231,6 +238,7 @@ def main():
         for repo in repos:
             load_copy_list_from_config(repo)
 
+    # Manager 생성
     fm = FileManager(copy_dir, logs_dir, back_dir)
     gm = GitManager(server, token, global_branch, fm)
     processor = RepoProcessor(gm, fm, repo_base_dir, ant_cmd, global_branch)
@@ -241,19 +249,19 @@ def main():
         print("No repository to execute.")
         return
 
-    # 순차
+    # 순차 실행
     if is_single:
         for repo in exec_repos:
             process_single_repo(processor, repo)
 
-    # 병렬
+    # 병렬 실행
     else:
         with ThreadPoolExecutor(max_workers=5) as exe:
             futures = [exe.submit(process_single_repo, processor, repo) for repo in exec_repos]
             for f in as_completed(futures):
                 f.result()
 
-    # 모든 repo 처리 후 summary 생성
+    # ★★★★★ 모든 repo 처리 후 summary 생성 ★★★★★
     write_summary(copy_dir, repos, worklist)
 
 
