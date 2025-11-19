@@ -1,10 +1,10 @@
 import os
 import yaml
-import subprocess
-import tempfile
+import matplotlib.pyplot as plt
+
 
 # ---------------------------------------------------------
-#  Load config.yml
+# Load config.yml
 # ---------------------------------------------------------
 def load_config(config_path="config.yml"):
     with open(config_path, "r", encoding="utf-8") as f:
@@ -13,14 +13,14 @@ def load_config(config_path="config.yml"):
 
 
 # ---------------------------------------------------------
-#  Normalize Windows path
+# Normalize Windows path
 # ---------------------------------------------------------
 def normalize_path(path):
     return path.replace("/", "\\")
 
 
 # ---------------------------------------------------------
-#  Build simple tree text
+# Build text-based directory tree
 # ---------------------------------------------------------
 def build_tree_text(root_dir, folder_count, file_count):
     lines = []
@@ -42,54 +42,20 @@ def build_tree_text(root_dir, folder_count, file_count):
 
 
 # ---------------------------------------------------------
-#  Create image using PowerShell + System.Drawing
+# Simple TEXT → PNG using matplotlib (no Pillow)
 # ---------------------------------------------------------
-def create_image_using_powershell(text, output_file):
+def create_text_image(text, output_file):
+    plt.figure(figsize=(10, 0.3 * len(text.split("\n"))))
+    plt.text(0.01, 1.0, text, fontsize=10, family="monospace", verticalalignment="top")
+    plt.axis("off")
 
-    # Save text to temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8") as tmp:
-        tmp.write(text)
-        tmp_path = tmp.name
-
-    # PowerShell script
-    ps_script = f'''
-    Add-Type -AssemblyName System.Drawing
-
-    $font = New-Object System.Drawing.Font("Consolas", 12)
-    $lines = Get-Content "{tmp_path}"
-
-    $width = 0
-    foreach ($line in $lines) {{
-        $size = [System.Drawing.Graphics]::MeasureString($line, $font)
-        if ($size.Width -gt $width) {{ $width = $size.Width }}
-    }}
-
-    $height = ($lines.Count * 20) + 20
-    $bmp = New-Object System.Drawing.Bitmap([int]$width + 20, [int]$height)
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.Clear([System.Drawing.Color]::White)
-
-    $y = 10
-    foreach ($line in $lines) {{
-        $g.DrawString($line, $font, [System.Drawing.Brushes]::Black, 10, $y)
-        $y += 20
-    }}
-
-    $bmp.Save("{output_file}", [System.Drawing.Imaging.ImageFormat]::Png)
-    '''
-
-    # Execute PowerShell
-    subprocess.run(["powershell", "-Command", ps_script], capture_output=True, text=True)
-
-    print(f"Image created: {output_file}")
-
-    # clean temp file
-    os.remove(tmp_path)
-
+    plt.savefig(output_file, dpi=200, bbox_inches="tight", pad_inches=0.2)
+    plt.close()
+    print(f"[Image Created] {output_file}")
 
 
 # ---------------------------------------------------------
-#  Ensure images folder exists
+# Ensure images/ exists
 # ---------------------------------------------------------
 def ensure_images_folder():
     folder = "images"
@@ -100,7 +66,7 @@ def ensure_images_folder():
 
 
 # ---------------------------------------------------------
-#  Main
+# Main
 # ---------------------------------------------------------
 if __name__ == "__main__":
     images_folder = ensure_images_folder()
@@ -114,14 +80,13 @@ if __name__ == "__main__":
             print(f"[SKIP] Path does not exist: {normalize_path(dir_path)}")
             continue
 
-        # Build tree text
         tree_text = build_tree_text(dir_path, total_folder_count, total_file_count)
 
         print("\n[Directory Tree]\n")
         print(tree_text)
 
         output_name = os.path.join(images_folder, f"tree_{os.path.basename(dir_path)}.png")
-        create_image_using_powershell(tree_text, output_name)
+        create_text_image(tree_text, output_name)
 
     print("\n================ Summary ================\n")
     print(f"Total folders: {total_folder_count[0]}")
