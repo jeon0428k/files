@@ -21,24 +21,28 @@ def normalize_path(path):
 
 # ---------------------------------------------------------
 #  Build simple tree text
+#  + count folders / files for each path
 # ---------------------------------------------------------
-def build_tree_text(root_dir, folder_count, file_count):
+def build_tree_text(root_dir):
     lines = []
     lines.append(normalize_path(root_dir))
+
+    folder_count = 0
+    file_count = 0
 
     for current_path, dirs, files in os.walk(root_dir):
         level = current_path.replace(root_dir, "").count(os.sep)
         indent = " " * 4 * level
 
-        folder_count[0] += 1
+        folder_count += 1
         lines.append(f"{indent}{os.path.basename(current_path)}\\")
 
         sub_indent = " " * 4 * (level + 1)
         for file in files:
-            file_count[0] += 1
+            file_count += 1
             lines.append(f"{sub_indent}- {file}")
 
-    return "\n".join(lines)
+    return "\n".join(lines), folder_count, file_count
 
 
 # ---------------------------------------------------------
@@ -46,12 +50,10 @@ def build_tree_text(root_dir, folder_count, file_count):
 # ---------------------------------------------------------
 def create_image_using_powershell(text, output_file):
 
-    # Save text to temporary file
     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8") as tmp:
         tmp.write(text)
         tmp_path = tmp.name
 
-    # PowerShell script
     ps_script = f'''
     Add-Type -AssemblyName System.Drawing
 
@@ -78,14 +80,10 @@ def create_image_using_powershell(text, output_file):
     $bmp.Save("{output_file}", [System.Drawing.Imaging.ImageFormat]::Png)
     '''
 
-    # Execute PowerShell
     subprocess.run(["powershell", "-Command", ps_script], capture_output=True, text=True)
-
     print(f"Image created: {output_file}")
 
-    # clean temp file
     os.remove(tmp_path)
-
 
 
 # ---------------------------------------------------------
@@ -106,24 +104,36 @@ if __name__ == "__main__":
     images_folder = ensure_images_folder()
     check_dirs = load_config("config.yml")
 
-    total_folder_count = [0]
-    total_file_count = [0]
+    total_folders = 0
+    total_files = 0
 
     for dir_path in check_dirs:
         if not os.path.exists(dir_path):
             print(f"[SKIP] Path does not exist: {normalize_path(dir_path)}")
             continue
 
-        # Build tree text
-        tree_text = build_tree_text(dir_path, total_folder_count, total_file_count)
+        # Build tree + count per directory
+        tree_text, folder_count, file_count = build_tree_text(dir_path)
 
-        print("\n[Directory Tree]\n")
+        print("\n[Directory Tree]")
         print(tree_text)
 
+        # per-path summary
+        print(f"\nPath Summary for {normalize_path(dir_path)}")
+        print(f"folders: {folder_count}")
+        print(f"files:   {file_count}")
+
+        total_folders += folder_count
+        total_files += file_count
+
+        # Export image
         output_name = os.path.join(images_folder, f"tree_{os.path.basename(dir_path)}.png")
         create_image_using_powershell(tree_text, output_name)
 
-    print("\n================ Summary ================\n")
-    print(f"Total folders: {total_folder_count[0]}")
-    print(f"Total files: {total_file_count[0]}")
-    print("\n=========================================\n")
+    # -----------------------------------------------------
+    # Final TOTAL summary
+    # -----------------------------------------------------
+    print("\n================ TOTAL SUMMARY ================\n")
+    print(f"total folders: {total_folders}")
+    print(f"total files:   {total_files}")
+    print("\n================================================\n")
