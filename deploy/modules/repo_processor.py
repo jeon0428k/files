@@ -41,6 +41,7 @@ class RepoProcessor:
         # -----------------------------------------------------
         if "all" in exec_list:
             self.process_all(
+                repo_info,
                 repo_path, repo_name, git_mode, repo_branch,
                 build_file, transform_path,
                 unique_copy_list, raw_copy_list, copy_count_map
@@ -80,7 +81,7 @@ class RepoProcessor:
         # -------------------- Build 디렉토리 체크 --------------------
         build_dir = repo_dir / "build"
 
-        # 🔥 build_dir 존재하지 않을 경우 로그 및 콘솔 출력
+        # build_dir 존재하지 않을 경우 로그 및 콘솔 출력
         if not build_dir.exists():
             msg = f"Build directory not found: {build_dir}"
             self.fm.dual_log(repo_name, msg)  # 콘솔 + 전체로그 + 세션로그
@@ -88,6 +89,10 @@ class RepoProcessor:
 
         # -------------------- File 존재 체크 --------------------
         exist_files, missing_files = self.fm.check_copy_files_exist(build_dir, unique_copy_list)
+
+        # summary 기능을 위해 추가
+        repo_info["exist_files"] = exist_files
+        repo_info["missing_files"] = missing_files
 
         # -------------------- Copy --------------------
         if "copy" in exec_list:
@@ -124,7 +129,7 @@ class RepoProcessor:
     # ---------------------------------------------------------
     # ALL 모드: 기존 full pipeline 처리
     # ---------------------------------------------------------
-    def process_all(self, repo_path, repo_name, git_mode, repo_branch,
+    def process_all(self, repo_info, repo_path, repo_name, git_mode, repo_branch,
                     build_file, transform_path,
                     unique_copy_list, raw_copy_list, copy_count_map):
 
@@ -156,7 +161,7 @@ class RepoProcessor:
         # -------------------- Build 디렉토리 체크 --------------------
         build_dir = repo_dir / "build"
 
-        # 🔥 build_dir 존재하지 않을 경우 로그 및 콘솔 출력
+        # build_dir 존재하지 않을 경우 로그 및 콘솔 출력
         if not build_dir.exists():
             msg = f"Build directory not found: {build_dir}"
             self.fm.dual_log(repo_name, msg)
