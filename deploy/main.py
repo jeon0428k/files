@@ -233,7 +233,7 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
 # main
 # -------------------------------------------------------------
 def main():
-    config = load_config("config.yml")
+    config = load_config("files/config.yml")
 
     is_single = config.get("is_single", False)
     is_worklist = config.get("is_worklist", False)

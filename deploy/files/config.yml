@@ -29,12 +29,32 @@ paths:
   # Ant 실행 경로 (절대경로)
   ant_cmd: "D:/program/apache-ant-1.10.15/bin/ant.bat"
   # is_worklist = true 일 때만 사용
-  worklist_file: "./worklist.txt"
+  worklist_file: "./files/worklist.txt"
   # 배포 완료 후 결과 파일 체크 경로
+  ###########################################################################
+  # check_dirs
+  # - 스캔할 기준 경로(폴더 또는 파일)
+  # - 각 경로 기준으로 하위 모든 파일 및 폴더를 검색
+  ###########################################################################
   check_dirs:
-    - "D:/deploy"
-    - "D:/not_exists_path"
-    - "C:/projects/test"
+#    - "D:/deploy/copy"
+    - "D:/deploy/copy/test"
+    - "D:/deploy/copy/test2"
+  ###########################################################################
+  # check_exclude_paths
+  # 스캔에서 제외할 항목
+  #   - 폴더: 해당 폴더 전체 제외
+  #   - 파일: 해당 파일만 제외
+  #   - 패턴:
+  #       *   : 해당 경로 바로 아래에서만 매칭
+  #       **  : 하위 모든 depth 에서 매칭
+  #
+  # 예)
+  #   D:/deploy/copy/*.log       → copy 바로 아래 .log 제외
+  #   D:/deploy/copy/**/*.log    → copy 하위 전체 .log 제외
+  ###########################################################################
+  check_exclude_paths:
+    - "D:/deploy/copy/*.log"
 
 # --------------------------------------------------------------------
 # repository 목록
@@ -59,7 +79,7 @@ repositories:
     branch: "main"
     execute:
 #      - "stop"
-#      - "all"
+      - "all"
       - "git"
       - "build"
       - "copy"
@@ -69,7 +89,7 @@ repositories:
     transform_path:
       - ["SpringMVC-MyBatis-Demo/classes", "test/etc"]
     worklist_prefixes:
-      - "classes/com"
+      - "classes"
     copy_list:
       - "classes/com/springapp/mvc/controller/TestController.class"
       - "classes/com/springapp/mvc/controller/TestController.class"
@@ -79,7 +99,7 @@ repositories:
   - name: "jeon0428k/jrebel-license-server.git"
     branch: "main"
     execute:
-      - "stop"
+#      - "stop"
       - "all"
       - "git"
       - "build"
@@ -90,7 +110,7 @@ repositories:
     transform_path:
       - ["jrebel-license-server/src", "test"]
     worklist_prefixes:
-      - "src/main"
+      - "src"
     copy_list:
       - "src/main/java/com/imjcker/jrebel/JrebelApplication.java"
       - "src/main/resources/application.yml"

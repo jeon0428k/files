@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 
 
-def load_config(path="config.yml"):
+def load_config(path="files/config.yml"):
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"config.yml not found: {p}")
