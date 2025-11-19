@@ -1,6 +1,5 @@
 import os
 import yaml
-import hashlib
 from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------
@@ -51,7 +50,7 @@ def print_directory_tree(tree_text):
 
 
 # ---------------------------------------------------------
-#  Print all files (console)
+#  Print all file paths
 # ---------------------------------------------------------
 def print_all_file_paths(root_dir, file_count):
     print(f"\n[File List Under] {normalize_path(root_dir)}\n")
@@ -71,9 +70,9 @@ def create_text_image(text, output_file):
     lines = text.split("\n")
     font = ImageFont.load_default()
 
+    # text width
     max_width = max(font.getbbox(line)[2] for line in lines) + 20
     line_height = font.getbbox("A")[3] + 6
-
     img_height = line_height * len(lines) + 20
 
     img = Image.new("RGB", (max_width, img_height), "white")
@@ -85,13 +84,28 @@ def create_text_image(text, output_file):
         y += line_height
 
     img.save(output_file)
-    print(f"Tree image created: {output_file}")
+    print(f"Image created: {output_file}")
+
+
+# ---------------------------------------------------------
+#  Ensure images folder exists
+# ---------------------------------------------------------
+def ensure_images_folder():
+    folder = "images"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+        print(f"[INFO] Created folder: {folder}")
+    return folder
 
 
 # ---------------------------------------------------------
 #  Main
 # ---------------------------------------------------------
 if __name__ == "__main__":
+
+    # ensure images folder exists
+    images_folder = ensure_images_folder()
+
     check_dirs = load_config("config.yml")
 
     total_folder_count = [0]
@@ -107,11 +121,10 @@ if __name__ == "__main__":
         print_directory_tree(tree_text)
         print_all_file_paths(dir_path, total_file_count)
 
-        # Create simple tree image
-        output_name = f"tree_{os.path.basename(dir_path)}.png"
+        output_name = os.path.join(images_folder, f"tree_{os.path.basename(dir_path)}.png")
         create_text_image(tree_text, output_name)
 
-    # Summary
+    # final summary
     print("\n================ Summary ================\n")
     print(f"Total folders: {total_folder_count[0]}")
     print(f"Total files: {total_file_count[0]}")
