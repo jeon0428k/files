@@ -67,7 +67,7 @@ def distribute_worklist_to_repos(repos: list[dict], worklist: list[str]):
 # config copy_list 로드
 # -------------------------------------------------------------
 def load_copy_list_from_config(repo: dict):
-    copy_list = [normalize_path(p or "") for p in repo.get("copy_list", []) or []]
+    copy_list = [normalize_path(p) for p in repo.get("copy_list", []) or []]
     analyze_copy_list(repo, copy_list)
 
 
