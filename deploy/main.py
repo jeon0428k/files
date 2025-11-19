@@ -10,13 +10,33 @@ from modules.repo_processor import RepoProcessor
 
 
 # -------------------------------------------------------------
+# 경로 정규화: 선행 (/, gemswas/) 제거
+# -------------------------------------------------------------
+def normalize_path(p: str) -> str:
+    if not p:
+        return p
+
+    p = p.strip()
+
+    # 선행 / 모두 제거
+    while p.startswith("/"):
+        p = p[1:]
+
+    # 선행 gemswas/ 제거
+    if p.startswith("gemswas/"):
+        p = p[len("gemswas/"):]
+
+    return p
+
+
+# -------------------------------------------------------------
 # worklist 파일 읽기
 # -------------------------------------------------------------
 def load_worklist(worklist_path: Path) -> list[str]:
     if not worklist_path.exists():
         raise FileNotFoundError(f"Worklist file not found: {worklist_path}")
     with open(worklist_path, "r", encoding="utf-8") as f:
-        return [x.strip() for x in f.readlines() if x.strip()]
+        return [normalize_path(x.strip()) for x in f.readlines() if x.strip()]
 
 
 # -------------------------------------------------------------
@@ -47,7 +67,7 @@ def distribute_worklist_to_repos(repos: list[dict], worklist: list[str]):
 # config copy_list 로드
 # -------------------------------------------------------------
 def load_copy_list_from_config(repo: dict):
-    copy_list = repo.get("copy_list", []) or []
+    copy_list = [normalize_path(p or "") for p in repo.get("copy_list", []) or []]
     analyze_copy_list(repo, copy_list)
 
 
