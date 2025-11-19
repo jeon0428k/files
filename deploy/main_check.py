@@ -1,6 +1,7 @@
 import os
 import yaml
-from PIL import Image, ImageDraw, ImageFont
+import subprocess
+import tempfile
 
 # ---------------------------------------------------------
 #  Load config.yml
@@ -12,18 +13,18 @@ def load_config(config_path="config.yml"):
 
 
 # ---------------------------------------------------------
-#  Normalize path (replace / with \)
+#  Normalize Windows path
 # ---------------------------------------------------------
 def normalize_path(path):
     return path.replace("/", "\\")
 
 
 # ---------------------------------------------------------
-#  Build tree text (for console and image)
+#  Build simple tree text
 # ---------------------------------------------------------
 def build_tree_text(root_dir, folder_count, file_count):
     lines = []
-    lines.append(f"{normalize_path(root_dir)}")
+    lines.append(normalize_path(root_dir))
 
     for current_path, dirs, files in os.walk(root_dir):
         level = current_path.replace(root_dir, "").count(os.sep)
@@ -33,7 +34,6 @@ def build_tree_text(root_dir, folder_count, file_count):
         lines.append(f"{indent}{os.path.basename(current_path)}\\")
 
         sub_indent = " " * 4 * (level + 1)
-
         for file in files:
             file_count[0] += 1
             lines.append(f"{sub_indent}- {file}")
@@ -42,49 +42,50 @@ def build_tree_text(root_dir, folder_count, file_count):
 
 
 # ---------------------------------------------------------
-#  Print directory tree in console
+#  Create image using PowerShell + System.Drawing
 # ---------------------------------------------------------
-def print_directory_tree(tree_text):
-    print("\n[Directory Tree]\n")
-    print(tree_text)
+def create_image_using_powershell(text, output_file):
 
+    # Save text to temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8") as tmp:
+        tmp.write(text)
+        tmp_path = tmp.name
 
-# ---------------------------------------------------------
-#  Print all file paths
-# ---------------------------------------------------------
-def print_all_file_paths(root_dir, file_count):
-    print(f"\n[File List Under] {normalize_path(root_dir)}\n")
+    # PowerShell script
+    ps_script = f'''
+    Add-Type -AssemblyName System.Drawing
 
-    for current_path, dirs, files in os.walk(root_dir):
-        for file in files:
-            full_path = normalize_path(os.path.join(current_path, file))
-            print(full_path)
-            file_count[0] += 1
+    $font = New-Object System.Drawing.Font("Consolas", 12)
+    $lines = Get-Content "{tmp_path}"
 
+    $width = 0
+    foreach ($line in $lines) {{
+        $size = [System.Drawing.Graphics]::MeasureString($line, $font)
+        if ($size.Width -gt $width) {{ $width = $size.Width }}
+    }}
 
-# ---------------------------------------------------------
-#  Simple TEXT → IMAGE (PIL)
-# ---------------------------------------------------------
-def create_text_image(text, output_file):
+    $height = ($lines.Count * 20) + 20
+    $bmp = New-Object System.Drawing.Bitmap([int]$width + 20, [int]$height)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.Clear([System.Drawing.Color]::White)
 
-    lines = text.split("\n")
-    font = ImageFont.load_default()
+    $y = 10
+    foreach ($line in $lines) {{
+        $g.DrawString($line, $font, [System.Drawing.Brushes]::Black, 10, $y)
+        $y += 20
+    }}
 
-    # text width
-    max_width = max(font.getbbox(line)[2] for line in lines) + 20
-    line_height = font.getbbox("A")[3] + 6
-    img_height = line_height * len(lines) + 20
+    $bmp.Save("{output_file}", [System.Drawing.Imaging.ImageFormat]::Png)
+    '''
 
-    img = Image.new("RGB", (max_width, img_height), "white")
-    draw = ImageDraw.Draw(img)
+    # Execute PowerShell
+    subprocess.run(["powershell", "-Command", ps_script], capture_output=True, text=True)
 
-    y = 10
-    for line in lines:
-        draw.text((10, y), line, font=font, fill="black")
-        y += line_height
-
-    img.save(output_file)
     print(f"Image created: {output_file}")
+
+    # clean temp file
+    os.remove(tmp_path)
+
 
 
 # ---------------------------------------------------------
@@ -102,10 +103,7 @@ def ensure_images_folder():
 #  Main
 # ---------------------------------------------------------
 if __name__ == "__main__":
-
-    # ensure images folder exists
     images_folder = ensure_images_folder()
-
     check_dirs = load_config("config.yml")
 
     total_folder_count = [0]
@@ -113,18 +111,18 @@ if __name__ == "__main__":
 
     for dir_path in check_dirs:
         if not os.path.exists(dir_path):
-            print(f"\n[SKIP] Path does not exist: {normalize_path(dir_path)}")
+            print(f"[SKIP] Path does not exist: {normalize_path(dir_path)}")
             continue
 
+        # Build tree text
         tree_text = build_tree_text(dir_path, total_folder_count, total_file_count)
 
-        print_directory_tree(tree_text)
-        print_all_file_paths(dir_path, total_file_count)
+        print("\n[Directory Tree]\n")
+        print(tree_text)
 
         output_name = os.path.join(images_folder, f"tree_{os.path.basename(dir_path)}.png")
-        create_text_image(tree_text, output_name)
+        create_image_using_powershell(tree_text, output_name)
 
-    # final summary
     print("\n================ Summary ================\n")
     print(f"Total folders: {total_folder_count[0]}")
     print(f"Total files: {total_file_count[0]}")
