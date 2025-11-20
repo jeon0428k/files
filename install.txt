@@ -1,1 +1,2 @@
+python 3.14
 pip install pyyaml, pillow, pandas, openpyxl
