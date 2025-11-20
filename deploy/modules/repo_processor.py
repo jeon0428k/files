@@ -29,6 +29,9 @@ class RepoProcessor:
         raw_copy_list = repo_info.get("raw_copy_list", [])
         copy_count_map = repo_info.get("copy_count_map", {})
 
+        # repo별 copy_exclude_paths (옵션)
+        copy_exclude_paths = repo_info.get("copy_exclude_paths", []) or []
+
         # -----------------------------------------------------
         # stop 우선 실행: 해당 repo는 즉시 스킵
         # -----------------------------------------------------
@@ -44,7 +47,8 @@ class RepoProcessor:
                 repo_info,
                 repo_path, repo_name, git_mode, repo_branch,
                 build_file, transform_path,
-                unique_copy_list, raw_copy_list, copy_count_map
+                unique_copy_list, raw_copy_list, copy_count_map,
+                copy_exclude_paths,
             )
             return
 
@@ -88,26 +92,48 @@ class RepoProcessor:
             return
 
         # -------------------- File 존재 체크 --------------------
-        exist_files, missing_files = self.fm.check_copy_files_exist(build_dir, unique_copy_list)
+        exist_files, missing_files, excluded_files = self.fm.check_copy_files_exist(
+            build_dir,
+            unique_copy_list,
+            copy_exclude_paths,
+        )
 
         # summary 기능을 위해 추가
         repo_info["exist_files"] = exist_files
         repo_info["missing_files"] = missing_files
+        repo_info["excluded_files"] = excluded_files
 
         # -------------------- Copy --------------------
         if "copy" in exec_list:
-            self.fm.copy_files(build_dir, repo_name, exist_files, transform_path)
+            # excluded 대상은 copy 대상에서 제외
+            copy_targets = [x for x in exist_files if x not in excluded_files]
+            self.fm.copy_files(build_dir, repo_name, copy_targets, transform_path)
 
         # -------------------- Check --------------------
         if "check" in exec_list:
+            exist_raw = sum(copy_count_map.get(x, 0) for x in exist_files)
+            exist_unique = len(exist_files)
+
+            missing_raw = sum(copy_count_map.get(x, 0) for x in missing_files)
+            missing_unique = len(missing_files)
+
+            excluded_raw = sum(copy_count_map.get(x, 0) for x in excluded_files)
+            excluded_unique = len(excluded_files)
+
             self.fm.log_file_check_summary(
-                repo_name, exist_files, missing_files,
-                len(raw_copy_list), len(unique_copy_list),
-                sum(copy_count_map.get(x, 0) for x in exist_files),
-                len(exist_files),
-                sum(copy_count_map.get(x, 0) for x in missing_files),
-                len(missing_files),
-                copy_count_map
+                repo_name,
+                exist_files,
+                missing_files,
+                excluded_files,
+                len(raw_copy_list),
+                len(unique_copy_list),
+                exist_raw,
+                exist_unique,
+                missing_raw,
+                missing_unique,
+                excluded_raw,
+                excluded_unique,
+                copy_count_map,
             )
 
     # ---------------------------------------------------------
@@ -131,7 +157,8 @@ class RepoProcessor:
     # ---------------------------------------------------------
     def process_all(self, repo_info, repo_path, repo_name, git_mode, repo_branch,
                     build_file, transform_path,
-                    unique_copy_list, raw_copy_list, copy_count_map):
+                    unique_copy_list, raw_copy_list, copy_count_map,
+                    copy_exclude_paths):
 
         # 세션 로그 활성화
         self.fm.enable_session_log = True
@@ -168,22 +195,44 @@ class RepoProcessor:
             return  # ALL 모드라도 copy/check 불가 → 종료
 
         # -------------------- File 존재 체크 --------------------
-        exist_files, missing_files = self.fm.check_copy_files_exist(build_dir, unique_copy_list)
+        exist_files, missing_files, excluded_files = self.fm.check_copy_files_exist(
+            build_dir,
+            unique_copy_list,
+            copy_exclude_paths,
+        )
 
         # summary 기능을 위해 추가
         repo_info["exist_files"] = exist_files
         repo_info["missing_files"] = missing_files
+        repo_info["excluded_files"] = excluded_files
 
         # -------------------- Copy --------------------
-        self.fm.copy_files(build_dir, repo_name, exist_files, transform_path)
+        # excluded 대상은 copy 대상에서 제외
+        copy_targets = [x for x in exist_files if x not in excluded_files]
+        self.fm.copy_files(build_dir, repo_name, copy_targets, transform_path)
 
         # -------------------- Summary 출력 --------------------
+        exist_raw = sum(copy_count_map.get(x, 0) for x in exist_files)
+        exist_unique = len(exist_files)
+
+        missing_raw = sum(copy_count_map.get(x, 0) for x in missing_files)
+        missing_unique = len(missing_files)
+
+        excluded_raw = sum(copy_count_map.get(x, 0) for x in excluded_files)
+        excluded_unique = len(excluded_files)
+
         self.fm.log_file_check_summary(
-            repo_name, exist_files, missing_files,
-            len(raw_copy_list), len(unique_copy_list),
-            sum(copy_count_map.get(x, 0) for x in exist_files),
-            len(exist_files),
-            sum(copy_count_map.get(x, 0) for x in missing_files),
-            len(missing_files),
-            copy_count_map
+            repo_name,
+            exist_files,
+            missing_files,
+            excluded_files,
+            len(raw_copy_list),
+            len(unique_copy_list),
+            exist_raw,
+            exist_unique,
+            missing_raw,
+            missing_unique,
+            excluded_raw,
+            excluded_unique,
+            copy_count_map,
         )

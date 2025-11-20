@@ -3,7 +3,7 @@ import sys
 import yaml
 from fnmatch import fnmatch
 
-CONFIG_FILE = "files/config.yml"
+CONFIG_FILE = "config/config.yml"
 
 # ----------------------------
 # 콘솔 + 로그 파일 동시 출력 Logger

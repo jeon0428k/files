@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import datetime
 from threading import Lock
 from collections import Counter
+from fnmatch import fnmatch
 
 
 class FileManager:
@@ -108,22 +109,62 @@ class FileManager:
             self.backup_done = True
 
     # -----------------------------------------------------
-    # 파일 존재 여부 체크
+    # exclude 패턴 매칭
     # -----------------------------------------------------
-    def check_copy_files_exist(self, repo_dir: Path, copy_list: list[str]):
+    def _is_excluded(self, rel_path: str, exclude_patterns: list[str]) -> bool:
         """
-        build 디렉토리 기준으로 copy_list 내 파일의 존재 여부를 체크.
+        copy_exclude_paths / check_exclude_paths 와 동일한 개념의
+        패턴 매칭을 수행한다.
+
+        - rel_path 및 패턴은 모두 '/' 기준 문자열로 비교
+        - *, ** 등 glob 패턴 지원
         """
+        if not exclude_patterns:
+            return False
+
+        path = rel_path.replace("\\", "/")
+        for pat in exclude_patterns:
+            pat_norm = str(pat).replace("\\", "/")
+            if fnmatch(path, pat_norm):
+                return True
+        return False
+
+    # -----------------------------------------------------
+    # 파일 존재 여부 체크 (+ exclude 분리)
+    # -----------------------------------------------------
+    def check_copy_files_exist(
+        self,
+        repo_dir: Path,
+        copy_list: list[str],
+        exclude_patterns: list[str] | None = None,
+    ):
+        """
+        build 디렉토리 기준으로 copy_list 내 파일의 존재 여부를 체크하고,
+        exclude 패턴에 해당하는 파일을 별도 목록으로 분리한다.
+
+        반환값:
+          - exist_files   : 존재 + copy 대상
+          - missing_files : 미존재
+          - excluded_files: 존재하지만 copy_exclude_paths 에 의해 제외
+        """
+        exclude_patterns = exclude_patterns or []
+
         exist_files = []
         missing_files = []
+        excluded_files = []
 
         for rel in copy_list:
-            if (repo_dir / rel).exists():
-                exist_files.append(rel)
+            target = (repo_dir / rel)
+            if target.exists():
+                rel_str = str(rel).replace("\\", "/")
+                if self._is_excluded(rel_str, exclude_patterns):
+                    excluded_files.append(rel)
+                else:
+                    exist_files.append(rel)
             else:
                 missing_files.append(rel)
 
-        return exist_files, missing_files
+        return exist_files, missing_files, excluded_files
 
     # -----------------------------------------------------
     # 파일 복사 (중복 목적지 방지 적용)
@@ -176,12 +217,15 @@ class FileManager:
         repo_name,
         exist_files,
         missing_files,
+        excluded_files,
         raw_total,
         unique_total,
         exist_raw,
         exist_unique,
         missing_raw,
         missing_unique,
+        excluded_raw,
+        excluded_unique,
         raw_count_map,
     ):
         """
@@ -190,16 +234,30 @@ class FileManager:
         - (ALL 모드 시) 세션 로그
         - 콘솔
         에 기록하는 함수.
+
+        상태 구분:
+          [O] : 존재 + copy 대상
+          [-] : 존재하지만 exclude 에 의해 copy 제외
+          [X] : 파일 미존재
         """
 
         exist_counter = Counter(exist_files)
         missing_counter = Counter(missing_files)
+        excluded_counter = Counter(excluded_files)
 
-        # 전체 로그 + 세션 로그에 상세 파일 목록 기록
+        # -------------------------------
+        # 전체 로그 / 세션 로그: 상세 목록
+        # -------------------------------
         for p in sorted(exist_counter.keys()):
             raw_cnt = raw_count_map.get(p, 1)
             msg = f"[O] {p},{raw_cnt}"
-            # 전체 로그와 세션 로그에 동일하게 기록 (콘솔 출력은 하지 않음)
+            self.append_log(repo_name, msg)
+            if self.enable_session_log:
+                self.session_log(repo_name, msg)
+
+        for p in sorted(excluded_counter.keys()):
+            raw_cnt = raw_count_map.get(p, 1)
+            msg = f"[-] {p},{raw_cnt}"
             self.append_log(repo_name, msg)
             if self.enable_session_log:
                 self.session_log(repo_name, msg)
@@ -207,22 +265,30 @@ class FileManager:
         for p in sorted(missing_counter.keys()):
             raw_cnt = raw_count_map.get(p, 1)
             msg = f"[X] {p},{raw_cnt}"
-            # 전체 로그와 세션 로그에 동일하게 기록 (콘솔 출력은 하지 않음)
             self.append_log(repo_name, msg)
             if self.enable_session_log:
                 self.session_log(repo_name, msg)
 
-        # 콘솔에는 미존재 파일만 출력
-        if missing_counter:
-            for p in sorted(missing_counter.keys()):
-                raw_cnt = raw_count_map.get(p, 1)
-                print(f"[{repo_name}] [X] {p},{raw_cnt}")
+        # -------------------------------
+        # 콘솔 출력: 제외/미존재 위주
+        # -------------------------------
+        for p in sorted(excluded_counter.keys()):
+            raw_cnt = raw_count_map.get(p, 1)
+            print(f"[{repo_name}] [-] {p},{raw_cnt}")
 
+        for p in sorted(missing_counter.keys()):
+            raw_cnt = raw_count_map.get(p, 1)
+            print(f"[{repo_name}] [X] {p},{raw_cnt}")
+
+        # -------------------------------
         # summary 메시지 생성
+        # -------------------------------
         summary = (
-            f"File check summary → total: {raw_total}({unique_total}), "
+            f"File check summary → "
+            f"total: {raw_total}({unique_total}), "
             f"exists: {exist_raw}({exist_unique}), "
-            f"missing: {missing_raw}({missing_unique})"
+            f"missing: {missing_raw}({missing_unique}), "
+            f"excluded: {excluded_raw}({excluded_unique})"
         )
 
         # summary 는 dual_log 로 처리

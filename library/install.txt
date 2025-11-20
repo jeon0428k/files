@@ -1,2 +1,0 @@
-pip install pyyaml -t library
-pip install pillow -t library

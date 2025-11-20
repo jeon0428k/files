@@ -30,6 +30,15 @@ def normalize_path(p: str) -> str:
 
 
 # -------------------------------------------------------------
+# 리스트 경로 정규화
+# -------------------------------------------------------------
+def normalize_paths_in_list(paths: list[str] | None) -> list[str]:
+    if not paths:
+        return []
+    return [normalize_path(x) for x in paths]
+
+
+# -------------------------------------------------------------
 # worklist 파일 읽기
 # -------------------------------------------------------------
 def load_worklist(worklist_path: Path) -> list[str]:
@@ -107,17 +116,23 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         is_target = any(x in exec_list for x in ("all", "copy"))
 
         raw_list = repo.get("raw_copy_list", [])
-        count_map = repo.get("copy_count_map", {})
+        count_map = repo.get("copy_count_map", {}) or {}
 
-        exist_list = repo.get("exist_files", [])
-        missing_list = repo.get("missing_files", [])
+        exist_list = repo.get("exist_files", []) or []
+        missing_list = repo.get("missing_files", []) or []
+        excluded_list = repo.get("excluded_files", []) or []
 
         raw_count = len(raw_list)
         unique_count = len(set(raw_list))
+
         exist_raw = sum(count_map.get(x, 0) for x in exist_list)
         exist_unique = len(set(exist_list))
+
         missing_raw = sum(count_map.get(x, 0) for x in missing_list)
         missing_unique = len(set(missing_list))
+
+        excluded_raw = sum(count_map.get(x, 0) for x in excluded_list)
+        excluded_unique = len(set(excluded_list))
 
         repo_items |= set(raw_list)
 
@@ -132,12 +147,20 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         console_lines.append(f"Execution mode: {exec_str}")
 
         # -------------------------------
-        # log_file_check_summary() 동일 방식
         # 존재 파일 먼저 → 정렬 출력
         # -------------------------------
         for item in sorted(set(exist_list)):
             raw_cnt = count_map.get(item, 1)
             msg = f"[O] {item},{raw_cnt}"
+            lines.append(msg)
+            console_lines.append(msg)
+
+        # -------------------------------
+        # 제외 파일 정렬 출력
+        # -------------------------------
+        for item in sorted(set(excluded_list)):
+            raw_cnt = count_map.get(item, 1)
+            msg = f"[-] {item},{raw_cnt}"
             lines.append(msg)
             console_lines.append(msg)
 
@@ -154,7 +177,8 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         summary_line = (
             f"total: {raw_count}({unique_count}), "
             f"exists: {exist_raw}({exist_unique}), "
-            f"missing: {missing_raw}({missing_unique})"
+            f"missing: {missing_raw}({missing_unique}), "
+            f"excluded: {excluded_raw}({excluded_unique})"
         )
 
         lines.append(summary_line)
@@ -191,23 +215,32 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
     all_raw = len(all_raw_items) + len(others_raw)
     all_unique = len(all_unique_items | others_unique)
 
-    # 전체 exist / missing 수집
+    # 전체 exist / missing / excluded 수집
     total_exist_raw = sum(
-        repo["copy_count_map"].get(x, 0)
+        (repo.get("copy_count_map", {}) or {}).get(x, 0)
         for repo in repos
-        for x in repo.get("exist_files", [])
+        for x in (repo.get("exist_files", []) or [])
     )
     total_exist_unique = len(
-        set(x for repo in repos for x in repo.get("exist_files", []))
+        set(x for repo in repos for x in (repo.get("exist_files", []) or []))
     )
 
     total_missing_raw = sum(
-        repo["copy_count_map"].get(x, 0)
+        (repo.get("copy_count_map", {}) or {}).get(x, 0)
         for repo in repos
-        for x in repo.get("missing_files", [])
+        for x in (repo.get("missing_files", []) or [])
     )
     total_missing_unique = len(
-        set(x for repo in repos for x in repo.get("missing_files", []))
+        set(x for repo in repos for x in (repo.get("missing_files", []) or []))
+    )
+
+    total_excluded_raw = sum(
+        (repo.get("copy_count_map", {}) or {}).get(x, 0)
+        for repo in repos
+        for x in (repo.get("excluded_files", []) or [])
+    )
+    total_excluded_unique = len(
+        set(x for repo in repos for x in (repo.get("excluded_files", []) or []))
     )
 
     lines.append("===== summary =====")
@@ -217,6 +250,7 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         f"total: {all_raw}({all_unique}), "
         f"exists: {total_exist_raw}({total_exist_unique}), "
         f"missing: {total_missing_raw}({total_missing_unique}), "
+        f"excluded: {total_excluded_raw}({total_excluded_unique}), "
         f"unknown: {len(others_raw)}({len(others_unique)})"
     )
 
@@ -233,7 +267,7 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
 # main
 # -------------------------------------------------------------
 def main():
-    config = load_config("files/config.yml")
+    config = load_config("config/config.yml")
 
     is_single = config.get("is_single", False)
     is_worklist = config.get("is_worklist", False)
@@ -255,6 +289,13 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     repos = config["repositories"]
+
+    # repo별 copy_exclude_paths 경로 정규화
+    for repo in repos:
+        if "copy_exclude_paths" in repo:
+            repo["copy_exclude_paths"] = normalize_paths_in_list(
+                repo.get("copy_exclude_paths")
+            )
 
     # worklist 모드 처리
     if is_worklist:
