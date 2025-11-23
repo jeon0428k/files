@@ -2,66 +2,111 @@ import pandas as pd
 import yaml
 import os
 
-def load_config(config_path: str):
-    """YAML 설정 파일 로드"""
+# -------------------------------
+# 설정 파일 읽기
+# -------------------------------
+def load_config(config_path="./config/config.yml"):
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
-def load_work_sheet(excel_path: str, sheet_name: str = "sheet1"):
-    """엑셀 파일에서 sheet1 읽기"""
-    if not os.path.exists(excel_path):
-        raise FileNotFoundError(f"엑셀 파일이 존재하지 않습니다: {excel_path}")
-    return pd.read_excel(excel_path, sheet_name=sheet_name)
+# -------------------------------
+# 로그 기록 함수 (매 실행마다 새로 생성)
+# -------------------------------
+def write_log(log_path, text):
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "w", encoding="utf-8") as f:  # ← append 아님, 항상 새로 생성
+        f.write(text + "\n")
 
-def filter_by_date(df: pd.DataFrame, target_date: str):
-    """날짜 컬럼으로 필터링"""
-    # 날짜가 datetime 형식일 경우 문자열 변환 후 비교
-    df["날짜"] = df["날짜"].astype(str)
-    return df[df["날짜"] == target_date]
+# -------------------------------
+# 시스템 문자열이 리스트 중 하나라도 포함되는지 검사
+# -------------------------------
+def matches_any(system_value: str, key_list: list):
+    if system_value is None:
+        return False
+    system_value = str(system_value)
+    return any(key in system_value for key in key_list)
 
-def analyze_filtered_rows(df: pd.DataFrame):
-    """구분 건수 및 sr id + 내용 출력"""
-    result = {}
-
-    # 구분 컬럼 별 건수
-    category_count = df["구분"].value_counts().to_dict()
-    result["category_count"] = category_count
-
-    # sr id, 내용 목록
-    items = []
-    for _, row in df.iterrows():
-        items.append({
-            "id": row["id"],
-            "구분": row["구분"],
-            "sr_id": row["sr id"],
-            "내용": row["내용"]
-        })
-    result["items"] = items
-    return result
-
+# -------------------------------
+# 메인 처리 함수
+# -------------------------------
 def main():
-    # 1) config.yml 로드
-    config = load_config("config/config.yml")
-    excel_path = config["paths"]["work_file"]
-    target_date = config["paths"]["work_date"]
+    config = load_config()
 
-    # 2) 엑셀 sheet1 읽기
-    df = load_work_sheet(excel_path, sheet_name="sheet1")
+    work_date = config["paths"]["work_date"]
+    work_systems = config["paths"]["work_systems"]
+    work_sources = config["paths"]["work_sources"]
+    work_file = config["paths"]["work_file"]
+    result_log = config["paths"]["work_result_file"]
 
-    # 3) 날짜로 필터링
-    filtered_df = filter_by_date(df, target_date)
+    # → N/A 값이 NaN 으로 변환되지 않고 그대로 문자열 유지됨
+    df = pd.read_excel(work_file, sheet_name="sheet1", keep_default_na=False)
 
-    # 4) 분석 실행
-    analysis = analyze_filtered_rows(filtered_df)
+    # 날짜 비교를 위해 문자열 변환
+    df["반영일"] = df["반영일"].astype(str)
 
-    # 5) 결과 출력
-    print("=== 구분별 건수 ===")
-    for k, v in analysis["category_count"].items():
-        print(f"{k}: {v} 건")
+    # 날짜 필터 적용
+    filtered = df[df["반영일"] == work_date]
 
-    print("\n=== 상세 목록 (sr id / 내용) ===")
-    for item in analysis["items"]:
-        print(f"- id: {item['id']}, 구분: {item['구분']}, sr id: {item['sr_id']}, 내용: {item['내용']}")
+    output_lines = []
+    append = output_lines.append
 
+    append("======================================")
+    append(f"분석 결과 ({work_date})")
+    append("======================================\n")
+
+    # ---------------------------------------------------------
+    # 1) work_systems 카운트
+    # ---------------------------------------------------------
+    append("■ 시스템별 건수")
+
+    for system in work_systems:
+        count = filtered[filtered["시스템"].apply(lambda x: matches_any(x, [system]))].shape[0]
+        append(f"{system}: {count}건")
+
+    append("\n")
+
+    # ---------------------------------------------------------
+    # 2) work_sources 분류 출력
+    # ---------------------------------------------------------
+    append("■ 소스 분류 결과")
+    append(f"{work_date.replace('-', '')} 운영반영\n")
+
+    for source in work_sources:
+        append(f"[{source}]")
+
+        rows = filtered[filtered["시스템"].apply(lambda x: matches_any(x, [source]))]
+
+        if rows.empty:
+            append("(데이터 없음)")
+        else:
+            for _, row in rows.iterrows():
+                sr_no = row.get("SR리스트NO", "")
+                sr_txt = row.get("SR", "")
+                append(f"{sr_no}: {sr_txt}")   # ← 원본 그대로 출력
+
+        append("")  # 줄바꿈
+
+    # ---------------------------------------------------------
+    # 3) 소스 목록 출력
+    # ---------------------------------------------------------
+    append("■ 소스 목록")
+
+    for _, row in filtered.iterrows():
+        src = row.get("소스", "")
+        if src:
+            append(src)
+
+    # ---------------------------------------------------------
+    # 결과 출력 + 파일 저장 (덮어쓰기)
+    # ---------------------------------------------------------
+    final_output = "\n".join(output_lines)
+
+    print(final_output)
+    write_log(result_log, final_output)
+
+
+# -------------------------------
+# 실행
+# -------------------------------
 if __name__ == "__main__":
     main()

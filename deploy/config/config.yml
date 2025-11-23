@@ -28,8 +28,18 @@ paths:
   logs_dir: "D:/deploy"
   # Ant 실행 경로 (절대경로)
   ant_cmd: "D:/program/apache-ant-1.10.15/bin/ant.bat"
-  work_file: "./config/work.xlsx"
   work_date: "2025-11-21"
+  work_systems:
+    - "FAB"
+    - "INFRA"
+    - "SPMS"
+    - "BATCH"
+  work_sources:
+    - "GEMS"
+    - "SPMS"
+    - "BATCH"
+  work_file: "./config/work.xlsx"
+  work_result_file: "./config/result.log"
   # is_worklist = true 일 때만 사용
   worklist_file: "./config/worklist.txt"
   # 배포 완료 후 결과 파일 체크 경로
