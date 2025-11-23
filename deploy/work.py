@@ -21,10 +21,14 @@ def write_log(log_path, text):
 # 시스템 문자열이 리스트 중 하나라도 포함되는지 검사
 # -------------------------------
 def matches_any(system_value: str, key_list: list):
-    if system_value is None:
+    if not system_value:
         return False
-    system_value = str(system_value)
-    return any(key in system_value for key in key_list)
+
+    # "FAB-GEMS" → ["FAB", "GEMS"]
+    tokens = str(system_value).split("-")
+
+    # 토큰이 key와 완전히 일치하는 경우에만 매칭
+    return any(token == key for token in tokens for key in key_list)
 
 # -------------------------------
 # 메인 처리 함수
