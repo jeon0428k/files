@@ -23,10 +23,7 @@ def write_log(log_path, text):
 def matches_any(system_value: str, key_list: list):
     if not system_value:
         return False
-
-    # "FAB-GEMS" → ["FAB", "GEMS"]
     tokens = str(system_value).split("-")
-
     # 토큰이 key와 완전히 일치하는 경우에만 매칭
     return any(token == key for token in tokens for key in key_list)
 
@@ -63,6 +60,11 @@ def main():
     # ---------------------------------------------------------
     append("■ 시스템별 건수")
 
+    # 전체 건수 추가
+    total_count = filtered.shape[0]
+    append(f"전체: {total_count}건")
+
+    # 개별 시스템별 건수 출력
     for system in work_systems:
         count = filtered[filtered["시스템"].apply(lambda x: matches_any(x, [system]))].shape[0]
         append(f"{system}: {count}건")
