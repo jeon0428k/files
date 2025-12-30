@@ -1,0 +1,13 @@
+copy_dir: "D:/deploy/build"
+
+repositories:
+  - name: "SpringMVC-MyBatis-Demo"
+    execute: false
+    dir: "a/b/c"
+    path: "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded"
+    copy_list:
+      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/classes/com/springapp/mvc/controller/TestController.class"
+      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/classes/com/springapp/mvc/model/User.class"
+      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/pages/hello.jsp"
+      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/web.xml"
+      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/index.jsp"

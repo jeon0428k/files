@@ -40,6 +40,7 @@ paths:
     - "BATCH"
   work_file: "./config/work.xlsx"
   work_result_file: "./config/result.log"
+  work_summary_file: "./logs/summary.log"
   # is_worklist = true 일 때만 사용
   worklist_file: "./config/worklist.txt"
   # 배포 완료 후 결과 파일 체크 경로

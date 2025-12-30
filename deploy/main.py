@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from collections import Counter
 from datetime import datetime
+import shutil  # ★ ADD
 
 from modules.util import load_config
 from modules.git_manager import GitManager
@@ -285,6 +286,10 @@ def main():
     worklist_path_str = config["paths"].get("worklist_file", "worklist.txt")
     worklist_file = Path(worklist_path_str).resolve()
 
+    # ★ ADD: 추가 summary 출력 파일 경로(없으면 None)
+    work_summary_file = config["paths"].get("work_summary_file")
+    work_summary_path = Path(work_summary_file).resolve() if work_summary_file else None
+
     for d in [repo_base_dir, copy_dir, logs_dir, back_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
@@ -329,8 +334,15 @@ def main():
             for f in as_completed(futures):
                 f.result()
 
-    # ★★★★★ 모든 repo 처리 후 summary 생성 ★★★★★
+    # ★★★★★ 모든 repo 처리 후 summary 생성 (기존 로직 유지) ★★★★★
     write_summary(copy_dir, repos, worklist)
+
+    # ★ ADD: 추가 경로에도 summary 덮어쓰기 생성
+    if work_summary_path:
+        src = copy_dir / "summary.log"
+        work_summary_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, work_summary_path)  # 덮어쓰기
+        print(f"Extra summary written → {work_summary_path}")
 
 
 if __name__ == "__main__":
