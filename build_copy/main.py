@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-CONFIG_FILE = "./config/config.yml"
+CONFIG_FILE = "config.yml"
 
 
 def main():
