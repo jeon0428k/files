@@ -29,17 +29,32 @@ def read_worklist(worklist_file: str) -> list[Path]:
 
 
 def build_repo_base_map(repositories: list[dict]) -> dict[str, dict]:
+    """
+    config.yml repositories 항목에서 repo별 설정을 정규화해서 저장
+    - dir (단일 문자열) -> svr_path (리스트) 로 변경
+    - svr_path 가 비어있을 수도 있음 (그 경우 repo_root 바로 아래로 복사)
+    """
     repo_base_map: dict[str, dict] = {}
     for r in repositories:
         name = r["name"]
         root = Path(r["root"]).resolve()
         base = (root / r["path"]).resolve()
 
+        # dir 호환(기존 설정이 남아있으면 단일값을 리스트로)
+        svr_path = r.get("svr_path", None)
+        if svr_path is None:
+            legacy_dir = r.get("dir", "")
+            svr_path = [legacy_dir] if legacy_dir else []
+        elif isinstance(svr_path, str):
+            svr_path = [svr_path]
+        else:
+            svr_path = svr_path or []
+
         repo_base_map[name] = {
             "name": name,
             "root": root,
             "base": base,
-            "dir": r["dir"],
+            "svr_path": svr_path,
             "execute": bool(r.get("execute", False)),
             "trans_path": r.get("trans_path", []) or [],
             "trans_file": r.get("trans_file", []) or [],
@@ -169,31 +184,45 @@ def ensure_empty_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
-def copy_grouped_and_log(
+def copy_grouped_and_log_multi(
     base_path: Path,
-    target_root: Path,
+    target_roots: list[Path],
     grouped: dict[Path, list[Path]],
-) -> list[tuple[str, Path, Optional[Path], list[Path]]]:
-    logs: list[tuple[str, Path, Optional[Path], list[Path]]] = []
+) -> list[tuple[str, Path, list[Path], list[Path]]]:
+    """
+    하나의 changed 파일을 여러 target_root로 복사한다.
+    return:
+      (status, changed, copied_list, src_list)
+      - status: "O" 성공(복사된 대상 1개 이상) / "X" 실패
+      - copied_list: 실제로 복사된 경로들
+    """
+    logs: list[tuple[str, Path, list[Path], list[Path]]] = []
 
     for changed, src_list in grouped.items():
         if not changed.exists():
-            logs.append(("X", changed, None, src_list))
+            logs.append(("X", changed, [], src_list))
             continue
 
         try:
             rel = changed.relative_to(base_path)
         except Exception:
-            logs.append(("X", changed, None, src_list))
+            logs.append(("X", changed, [], src_list))
             continue
 
-        try:
-            copied = target_root / rel
-            copied.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(changed, copied)
-            logs.append(("O", changed, copied, src_list))
-        except Exception:
-            logs.append(("X", changed, None, src_list))
+        copied_list: list[Path] = []
+        for root in target_roots:
+            try:
+                copied = root / rel
+                copied.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(changed, copied)
+                copied_list.append(copied)
+            except Exception:
+                pass
+
+        if copied_list:
+            logs.append(("O", changed, copied_list, src_list))
+        else:
+            logs.append(("X", changed, [], src_list))
 
     return sorted(logs, key=lambda x: (0 if x[0] == "O" else 1, str(x[1])))
 
@@ -202,6 +231,14 @@ def format_orin_block(src_list: list[Path]) -> str:
     count = len(src_list)
     joined = ", ".join(str(p) for p in src_list)
     return f"({count})[{joined}]"
+
+
+def format_copy_block(paths: list[Path]) -> str:
+    if not paths:
+        return ""
+    if len(paths) == 1:
+        return str(paths[0])
+    return f"({len(paths)})[{', '.join(str(p) for p in paths)}]"
 
 
 def print_unmapped(unmapped: dict[Path, list[Path]], is_orin_log: bool) -> None:
@@ -226,6 +263,24 @@ def count_grouped(grouped: dict[Path, list[Path]]) -> tuple[int, int]:
 
 def add_counts(a: tuple[int, int], b: tuple[int, int]) -> tuple[int, int]:
     return a[0] + b[0], a[1] + b[1]
+
+
+def normalize_svr_paths(svr_paths: list[str], repo_root: Path) -> list[Path]:
+    """
+    - svr_path 가 비어있으면 repo_root 하나만 반환 (기본 동작)
+    - 값이 있으면 repo_root / 각 svr_path 반환
+    """
+    if not svr_paths:
+        repo_root.mkdir(parents=True, exist_ok=True)
+        return [repo_root]
+
+    roots: list[Path] = []
+    for p in svr_paths:
+        p = str(p).strip().strip("/").strip("\\")
+        root = repo_root / p if p else repo_root
+        root.mkdir(parents=True, exist_ok=True)
+        roots.append(root)
+    return roots
 
 
 def main():
@@ -261,7 +316,7 @@ def main():
 
     for repo_name, info in repo_base_map.items():
         execute: bool = info["execute"]
-        repo_dir: str = info["dir"]
+        svr_paths: list[str] = info["svr_path"]
         base_path: Path = info["base"]
 
         print("=================================")
@@ -282,21 +337,20 @@ def main():
         repo_root = copy_root / repo_name
         ensure_empty_dir(repo_root)
 
-        target_root = repo_root / repo_dir
-        target_root.mkdir(parents=True, exist_ok=True)
+        target_roots = normalize_svr_paths(svr_paths, repo_root)
 
         print(f"target root: {base_path}")
-        print(f"copy root: {target_root}")
+        print(f"copy roots: {format_copy_block(target_roots)}")
         print("----------")
 
-        logs = copy_grouped_and_log(base_path, target_root, targets)
+        logs = copy_grouped_and_log_multi(base_path, target_roots, targets)
 
         success_grouped: dict[Path, list[Path]] = {}
         fail_grouped: dict[Path, list[Path]] = {}
 
-        for status, changed, copied, src_list in logs:
+        for status, changed, copied_list, src_list in logs:
             if status == "O":
-                print(f"[O] {changed} -> {copied}")
+                print(f"[O] {changed} -> {format_copy_block(copied_list)}")
                 if is_orin_log:
                     print(f"    {format_orin_block(src_list)}")
                 success_grouped[changed] = src_list

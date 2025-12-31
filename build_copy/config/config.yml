@@ -8,9 +8,11 @@ repositories:
   - name: "SpringMVC-MyBatis-Demo"
     execute: true
 #    execute: false
-    dir: "a/b/c"
     root: "D:/workspace/java/SpringMVC-MyBatis-Demo"
     path: "out/artifacts/SpringDemo_war_exploded"
+    svr_path:
+      - "dev/a"
+      - "prd/b"
     trans_path:
       - ["src/main/java", "WEB-INF/classes"]
       - ["src/main/resources", "WEB-INF/classes"]
