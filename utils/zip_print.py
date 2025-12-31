@@ -27,6 +27,16 @@ def to_mb(size: int) -> float:
     return round(size / (1024 * 1024), 2)
 
 
+# 🔽 추가: 현재 시간과의 차이를 HH:MM:SS 로 변환
+def diff_hms(dt: datetime) -> str:
+    diff = abs(datetime.now() - dt)
+    sec = int(diff.total_seconds())
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
+    return f"{h:02}:{m:02}:{s:02}"
+
+
 def main() -> int:
     print(f"> {now_str()}\n")
 
@@ -55,8 +65,9 @@ def main() -> int:
     print(f"[ZIP] {zip_path}")
     print(f"[COUNT] total_files={len(items)}, print_line={print_line}\n")
 
+    # 🔽 출력 형식 변경
     for dt, name, zi in items[:print_line]:
-        print(f"{dt.strftime('%Y-%m-%d %H:%M:%S')} | {to_mb(zi.file_size):6.2f} MB | {name}")
+        print(f"({diff_hms(dt)}) {dt.strftime('%Y-%m-%d %H:%M:%S')} | {to_mb(zi.file_size):6.2f} MB | {name}")
 
     return 0
 
