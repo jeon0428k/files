@@ -4,6 +4,8 @@ import yaml
 CONFIG_FILE = "./config/config.yml"
 
 # ----------------------------
+# 공통 유틸
+# ----------------------------
 def section(prefix, index, msg):
     print(f"[{prefix}-{index}] {msg}")
 
@@ -12,51 +14,45 @@ def normalize(path: str) -> str:
     return path.replace("\\", "/").rstrip("/").strip()
 
 
-# ----------------------------
-# config load
-# ----------------------------
-def load_repositories():
+def load_config():
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
 
-    copy_dir = normalize(config.get("copy_dir", ""))
-    if not copy_dir:
-        raise ValueError("copy_dir 가 정의되지 않았습니다.")
+    tree_list = config.get("tree_list", [])
+    if not isinstance(tree_list, list):
+        raise ValueError("tree_list 는 list 여야 합니다.")
 
-    repos = config.get("repositories", [])
-    result = []
-
-    for r in repos:
-        if r.get("tree") is True:
-            name = r.get("name")
-            if name:
-                root = f"{copy_dir}/{name}"
-                result.append({
-                    "name": name,
-                    "root": root
-                })
-    return result
+    return [normalize(p) for p in tree_list]
 
 
 # ----------------------------
+# path walk
+# ----------------------------
 def walk_all_paths(base):
     collected = []
+
     if not os.path.exists(base):
         return collected
 
     for root, dirs, files in os.walk(base):
-        collected.append(normalize(root))
+        root_n = normalize(root)
+        collected.append(root_n)
+
         for f in files:
             collected.append(normalize(os.path.join(root, f)))
+
     return collected
 
 
 # ----------------------------
+# 트리 구조
+# ----------------------------
 def build_tree(base, paths):
     tree = {}
     base = normalize(base)
+
     for p in paths:
-        rel = p[len(base):].lstrip("/")
+        rel = p[len(base) :].lstrip("/")
         cur = tree
         for part in rel.split("/") if rel else []:
             cur = cur.setdefault(part, {})
@@ -78,13 +74,14 @@ def print_tree(base, paths):
 
 
 # ----------------------------
+# main
+# ----------------------------
 def main():
-    repos = load_repositories()
+    targets = load_config()
     total = 0
 
-    for repo in repos:
-        name = repo["name"]
-        base = repo["root"]
+    for base in targets:
+        name = os.path.basename(base)
 
         print("\n======================================")
         section(name, 0, f"BASE PATH: {base}")

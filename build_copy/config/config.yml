@@ -8,8 +8,6 @@ repositories:
   - name: "SpringMVC-MyBatis-Demo"
     execute: true
 #    execute: false
-    tree: true
-#    tree: false
     dir: "a/b/c"
     root: "D:/workspace/java/SpringMVC-MyBatis-Demo"
     path: "out/artifacts/SpringDemo_war_exploded"
@@ -19,3 +17,6 @@ repositories:
       - ["src/main/webapp", ""]
     trans_file:
       - [".java", ".class"]
+
+tree_list:
+  - "D:/deploy/build/SpringMVC-MyBatis-Demo"
