@@ -1,4 +1,8 @@
+
 copy_dir: "D:/deploy/build"
+
+is_worklist: true
+worklist_file: "./config/worklist.txt"
 
 repositories:
   - name: "SpringMVC-MyBatis-Demo"
@@ -12,3 +16,4 @@ repositories:
       - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/pages/hello.jsp"
       - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/web.xml"
       - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/index.jsp"
+

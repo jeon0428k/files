@@ -1,0 +1,2 @@
+D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/classes/com/springapp/mvc/model/User.class
+D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded2/WEB-INF/classes/com/springapp/mvc/controller/TestController.class
