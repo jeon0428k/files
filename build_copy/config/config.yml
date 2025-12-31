@@ -1,19 +1,19 @@
 
 copy_dir: "D:/deploy/build"
-
-is_worklist: true
 worklist_file: "./config/worklist.txt"
+#is_orin_log: true
+is_orin_log: false
 
 repositories:
   - name: "SpringMVC-MyBatis-Demo"
     execute: true
 #    execute: false
     dir: "a/b/c"
-    path: "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded"
-    copy_list:
-      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/classes/com/springapp/mvc/controller/TestController.class"
-      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/classes/com/springapp/mvc/model/User.class"
-      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/pages/hello.jsp"
-      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/web.xml"
-      - "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded/WEB-INF/index.jsp"
-
+    root: "D:/workspace/java/SpringMVC-MyBatis-Demo"
+    path: "out/artifacts/SpringDemo_war_exploded"
+    trans_path:
+      - ["src/main/java", "WEB-INF/classes"]
+      - ["src/main/resources", "WEB-INF/classes"]
+      - ["src/main/webapp", ""]
+    trans_file:
+      - [".java", ".class"]
