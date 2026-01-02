@@ -12,6 +12,23 @@ def now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+# ----------------------------
+# summary_file 로 콘솔 출력 동시 기록 (덮어쓰기)
+# ----------------------------
+class Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, msg):
+        for s in self.streams:
+            s.write(msg)
+            s.flush()
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+
 def read_worklist(worklist_file: str) -> list[Path]:
     p = Path(worklist_file)
     if not p.exists():
@@ -283,10 +300,55 @@ def normalize_svr_paths(svr_paths: list[str], repo_root: Path) -> list[Path]:
     return roots
 
 
-def main():
-    with open(CONFIG_FILE, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+# ----------------------------
+# 성공 copy 경로를 dev/prd(첫 path) 기준으로 모아 출력
+# ----------------------------
+def add_success_copied_by_label(
+    success_by_label: dict[str, list[str]],
+    repo_root: Path,
+    copied_list: list[Path],
+) -> None:
+    """
+    copied_list(실제 복사된 경로)를 repo_root 기준 상대경로로 만든 뒤,
+    첫 세그먼트를 label(dev/prd 등)로 사용하고 label 이후 경로를 '/...' 형태로 저장한다.
 
+    예) repo_root/dev/a/WEB-INF/...  -> label='dev', store='/a/WEB-INF/...'
+    """
+    for copied in copied_list:
+        try:
+            rel = copied.relative_to(repo_root)
+        except Exception:
+            continue
+
+        parts = rel.parts
+        if not parts:
+            continue
+
+        label = parts[0]
+        rest_parts = parts[1:]
+        rest = "/" + "/".join(rest_parts) if rest_parts else "/"
+
+        success_by_label.setdefault(label, []).append(rest)
+
+
+def print_success_by_label(success_by_label: dict[str, list[str]]) -> None:
+    if not success_by_label:
+        return
+
+    for label in sorted(success_by_label.keys()):
+        items = sorted(set(success_by_label[label]))
+        print("=================================")
+        print(f"[{label}]")
+        print("---------------------------------")
+        for p in items:
+            print(p)
+        print("=================================\n")
+
+
+# ----------------------------
+# main try 블록 내용을 함수로 분리
+# ----------------------------
+def run_pipeline(config: dict) -> None:
     print(f"> {now_str()}\n")
 
     copy_root = Path(config["copy_dir"])
@@ -313,6 +375,9 @@ def main():
     total_success = (0, 0)
     total_fail = (0, 0)
     total_unmapped = count_grouped(unmapped)
+
+    # dev/prd 등 첫 path 기준으로 성공 copy 경로만 모으기
+    success_copied_by_label: dict[str, list[str]] = {}
 
     for repo_name, info in repo_base_map.items():
         execute: bool = info["execute"]
@@ -354,6 +419,8 @@ def main():
                 if is_orin_log:
                     print(f"    {format_orin_block(src_list)}")
                 success_grouped[changed] = src_list
+
+                add_success_copied_by_label(success_copied_by_label, repo_root, copied_list)
             else:
                 print(f"[X] {changed}")
                 if is_orin_log:
@@ -367,12 +434,38 @@ def main():
 
     print_unmapped(unmapped, is_orin_log)
 
+    print()
+    print_success_by_label(success_copied_by_label)
+
     print(
         f"total({total_all[0]}/{total_all[1]}), "
         f"success({total_success[0]}/{total_success[1]}), "
         f"fail({total_fail[0]}/{total_fail[1]}), "
         f"fail-unmapped({total_unmapped[0]}/{total_unmapped[1]})"
     )
+
+
+def main():
+    with open(CONFIG_FILE, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    # summary_file 옵션 처리 (없으면 콘솔만, 있으면 덮어쓰기)
+    summary_file = config.get("summary_file")
+    tee_file = None
+    original_stdout = sys.stdout
+
+    if summary_file:
+        summary_path = Path(summary_file)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        tee_file = open(summary_path, "w", encoding="utf-8")
+        sys.stdout = Tee(sys.__stdout__, tee_file)
+
+    try:
+        run_pipeline(config)
+    finally:
+        sys.stdout = original_stdout
+        if tee_file:
+            tee_file.close()
 
 
 if __name__ == "__main__":

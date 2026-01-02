@@ -1,6 +1,7 @@
 
 copy_dir: "D:/deploy/build"
 worklist_file: "./config/worklist.txt"
+summary_file: "./logs/summary.log"
 #is_orin_log: true
 is_orin_log: false
 
