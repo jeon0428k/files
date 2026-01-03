@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from collections import OrderedDict
 
 CONFIG_FILE = "./config/config.yml"
 
@@ -29,7 +30,7 @@ class Tee:
             s.flush()
 
 
-def read_worklist(worklist_file: str) -> list[Path]:
+def read_worklist(worklist_file: str) -> tuple[list[Path], dict[Path, list[str]]]:
     p = Path(worklist_file)
     if not p.exists():
         print(f"> {now_str()}")
@@ -37,12 +38,18 @@ def read_worklist(worklist_file: str) -> list[Path]:
         sys.exit(2)
 
     items: list[Path] = []
+    orin_map: dict[Path, list[str]] = {}
+
     for line in p.read_text(encoding="utf-8").splitlines():
         s = line.strip()
         if not s or s.startswith("#"):
             continue
-        items.append(Path(s))
-    return items
+
+        abs_path = Path(s).expanduser().resolve()
+        items.append(abs_path)
+        orin_map.setdefault(abs_path, []).append(s)  # 원본 문자열 보존(중복도 그대로)
+
+    return items, orin_map
 
 
 def build_repo_base_map(repositories: list[dict]) -> dict[str, dict]:
@@ -158,8 +165,7 @@ def apply_transform_one(src_abs: Path, repo_base_map: dict[str, dict]) -> tuple[
 def apply_transforms_grouped(inputs: list[Path], repo_base_map: dict[str, dict]) -> dict[Path, list[Path]]:
     grouped: dict[Path, list[Path]] = {}
 
-    for raw in inputs:
-        src_abs = raw.expanduser().resolve()
+    for src_abs in inputs:  # 이미 resolve된 절대경로
         changed, _ = apply_transform_one(src_abs, repo_base_map)
         grouped.setdefault(changed, []).append(src_abs)
 
@@ -244,10 +250,30 @@ def copy_grouped_and_log_multi(
     return sorted(logs, key=lambda x: (0 if x[0] == "O" else 1, str(x[1])))
 
 
-def format_orin_block(src_list: list[Path]) -> str:
-    count = len(src_list)
-    joined = ", ".join(str(p) for p in src_list)
-    return f"({count})[{joined}]"
+def format_orin_block(src_list: list[Path], orin_map: dict[Path, list[str]]) -> str:
+    idx_map: dict[Path, int] = {}
+    flat: list[str] = []
+
+    for p in src_list:
+        originals = orin_map.get(p)
+        i = idx_map.get(p, 0)
+
+        if originals and i < len(originals):
+            flat.append(originals[i])
+            idx_map[p] = i + 1
+        else:
+            flat.append(str(p))
+
+    total_cnt = len(flat)
+    counter = OrderedDict()
+    for s in flat:
+        counter[s] = counter.get(s, 0) + 1
+
+    out: list[str] = []
+    for path, cnt in counter.items():
+        out.append(f"({cnt}){path}")
+
+    return f"({total_cnt})[{', '.join(out)}]"
 
 
 def format_copy_block(paths: list[Path]) -> str:
@@ -258,7 +284,7 @@ def format_copy_block(paths: list[Path]) -> str:
     return f"({len(paths)})[{', '.join(str(p) for p in paths)}]"
 
 
-def print_unmapped(unmapped: dict[Path, list[Path]], is_orin_log: bool) -> None:
+def print_unmapped(unmapped: dict[Path, list[Path]], is_orin_log: bool, orin_map: dict[Path, list[str]]) -> None:
     if not unmapped:
         return
     print("=================================")
@@ -268,7 +294,7 @@ def print_unmapped(unmapped: dict[Path, list[Path]], is_orin_log: bool) -> None:
         src_list = unmapped[changed]
         print(f"[X] {changed}")
         if is_orin_log:
-            print(f"    {format_orin_block(src_list)}")
+            print(f"    {format_orin_block(src_list, orin_map)}")
     print("=================================")
 
 
@@ -308,12 +334,6 @@ def add_success_copied_by_label(
     repo_root: Path,
     copied_list: list[Path],
 ) -> None:
-    """
-    copied_list(실제 복사된 경로)를 repo_root 기준 상대경로로 만든 뒤,
-    첫 세그먼트를 label(dev/prd 등)로 사용하고 label 이후 경로를 '/...' 형태로 저장한다.
-
-    예) repo_root/dev/a/WEB-INF/...  -> label='dev', store='/a/WEB-INF/...'
-    """
     for copied in copied_list:
         try:
             rel = copied.relative_to(repo_root)
@@ -345,9 +365,6 @@ def print_success_by_label(success_by_label: dict[str, list[str]]) -> None:
         print("=================================\n")
 
 
-# ----------------------------
-# main try 블록 내용을 함수로 분리
-# ----------------------------
 def run_pipeline(config: dict) -> None:
     print(f"> {now_str()}\n")
 
@@ -366,7 +383,7 @@ def run_pipeline(config: dict) -> None:
 
     repo_base_map = build_repo_base_map(repositories)
 
-    raw_inputs = read_worklist(worklist_file)
+    raw_inputs, orin_map = read_worklist(worklist_file)
     grouped_all = apply_transforms_grouped(raw_inputs, repo_base_map)
     repo_grouped, unmapped = classify_grouped(grouped_all, repo_base_map)
 
@@ -376,7 +393,6 @@ def run_pipeline(config: dict) -> None:
     total_fail = (0, 0)
     total_unmapped = count_grouped(unmapped)
 
-    # dev/prd 등 첫 path 기준으로 성공 copy 경로만 모으기
     success_copied_by_label: dict[str, list[str]] = {}
 
     for repo_name, info in repo_base_map.items():
@@ -417,14 +433,14 @@ def run_pipeline(config: dict) -> None:
             if status == "O":
                 print(f"[O] {changed} -> {format_copy_block(copied_list)}")
                 if is_orin_log:
-                    print(f"    {format_orin_block(src_list)}")
+                    print(f"    {format_orin_block(src_list, orin_map)}")
                 success_grouped[changed] = src_list
 
                 add_success_copied_by_label(success_copied_by_label, repo_root, copied_list)
             else:
                 print(f"[X] {changed}")
                 if is_orin_log:
-                    print(f"    {format_orin_block(src_list)}")
+                    print(f"    {format_orin_block(src_list, orin_map)}")
                 fail_grouped[changed] = src_list
 
         total_success = add_counts(total_success, count_grouped(success_grouped))
@@ -432,7 +448,7 @@ def run_pipeline(config: dict) -> None:
 
         print("=================================\n")
 
-    print_unmapped(unmapped, is_orin_log)
+    print_unmapped(unmapped, is_orin_log, orin_map)
 
     print()
     print_success_by_label(success_copied_by_label)
@@ -449,23 +465,35 @@ def main():
     with open(CONFIG_FILE, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    # summary_file 옵션 처리 (없으면 콘솔만, 있으면 덮어쓰기)
     summary_file = config.get("summary_file")
-    tee_file = None
-    original_stdout = sys.stdout
+    work_summary_file = config.get("work_summary_file")
 
-    if summary_file:
-        summary_path = Path(summary_file)
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        tee_file = open(summary_path, "w", encoding="utf-8")
-        sys.stdout = Tee(sys.__stdout__, tee_file)
+    original_stdout = sys.stdout
+    tee_files = []
 
     try:
+        streams = [sys.__stdout__]
+
+        for fp in [summary_file, work_summary_file]:
+            if fp:
+                p = Path(fp)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                fobj = open(p, "w", encoding="utf-8")  # 덮어쓰기
+                tee_files.append(fobj)
+                streams.append(fobj)
+
+        if len(streams) > 1:
+            sys.stdout = Tee(*streams)
+
         run_pipeline(config)
+
     finally:
         sys.stdout = original_stdout
-        if tee_file:
-            tee_file.close()
+        for fobj in tee_files:
+            try:
+                fobj.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
