@@ -173,18 +173,34 @@ def clone_zipinfo(src_info: zipfile.ZipInfo) -> zipfile.ZipInfo:
     return zi
 
 
-def rebuild_zip_preserve_others(zip_file: Path, patch_map: Dict[str, Path], allow_add: bool = True) -> Tuple[int, int, int]:
+def build_output_zip_path(src_zip: Path) -> Path:
     """
+    원본 zip은 수정하지 않음.
+    패치 반영 zip은 {파일명}_{timestamp}.{확장자} 로 새로 생성.
+    """
+    ts = now_ts()
+    out_name = f"{src_zip.stem}_{ts}{src_zip.suffix}"
+    return src_zip.with_name(out_name)
+
+
+def rebuild_zip_to_new(
+    src_zip: Path,
+    out_zip: Path,
+    patch_map: Dict[str, Path],
+    allow_add: bool = True,
+) -> Tuple[int, int, int]:
+    """
+    - src_zip 을 읽어서 out_zip 으로 새로 생성
     - patch_map(zip_rel -> src_path)에 있는 엔트리는 교체
     - 나머지는 ZipInfo/데이터 그대로 복사(수정시간 유지)
     - allow_add=True 이면 zip에 없던 항목은 추가
     """
-    tmp_zip = zip_file.with_name(f"{zip_file.name}.tmp_{now_ts()}")
+    tmp_zip = out_zip.with_name(f"{out_zip.name}.tmp_{now_ts()}")
 
     patched = 0
     kept = 0
 
-    with zipfile.ZipFile(zip_file, "r") as zsrc, zipfile.ZipFile(tmp_zip, "w") as zdst:
+    with zipfile.ZipFile(src_zip, "r") as zsrc, zipfile.ZipFile(tmp_zip, "w") as zdst:
         src_names = set()
 
         for info in zsrc.infolist():
@@ -220,7 +236,11 @@ def rebuild_zip_preserve_others(zip_file: Path, patch_map: Dict[str, Path], allo
 
                 added += 1
 
-    os.replace(tmp_zip, zip_file)
+    # 최종 out_zip로 이동
+    if out_zip.exists():
+        out_zip.unlink()
+    os.replace(tmp_zip, out_zip)
+
     return patched, kept, added
 
 
@@ -280,19 +300,19 @@ def print_lists_in_format(
         )
 
 
-def patch_zip(zip_file: str, root_path: str, filelist_lines: list[str], is_backup: bool):
-    zip_file = Path(zip_file)
+def patch_zip(src_zip_file: str, root_path: str, filelist_lines: list[str], is_backup: bool):
+    src_zip = Path(src_zip_file)
     root_path = Path(root_path)
 
-    if not zip_file.exists():
-        raise FileNotFoundError(zip_file)
+    if not src_zip.exists():
+        raise FileNotFoundError(src_zip)
     if not root_path.exists():
         raise FileNotFoundError(root_path)
 
     # filelist 정규화: (zip_rel, src_path, raw, is_abs) + DISTINCT
     items = build_work_items(root_path, filelist_lines)
 
-    with zipfile.ZipFile(zip_file, "r") as z:
+    with zipfile.ZipFile(src_zip, "r") as z:
         zip_entries = set(z.namelist())
         zip_total_entries = len(zip_entries)
         zip_info_map = {zi.filename: zi for zi in z.infolist()}
@@ -311,20 +331,25 @@ def patch_zip(zip_file: str, root_path: str, filelist_lines: list[str], is_backu
         print(f"\n✖ ABORT: added({added_count}), patched({patched_count}), kept({zip_total_entries}), miss({miss_count})")
         return
 
-    # 1) backup + 목록 출력
-    backup_zip_if_enabled(zip_file, is_backup)
+    # 목록 출력(Proceed? 이전)
     print_lists_in_format(zip_entries, zip_info_map, ok_sorted, [], root_path)
 
-    # 2) 진행 여부 확인
+    # 진행 여부 확인
     print("\nProceed? (y = YES / anything else = NO): ", end="")
     resp = input().strip()
     if resp.lower() != "y":
         print("\n✖ CANCELED")
         return
 
-    patch_map = {zip_rel: src_path for zip_rel, src_path, _, _ in ok_sorted}
-    patched, kept, added = rebuild_zip_preserve_others(zip_file, patch_map, allow_add=True)
+    # y 로 진행 시점에 backup 수행
+    backup_zip_if_enabled(src_zip, is_backup)
 
+    # 원본 zip은 수정하지 않고, 신규 zip으로 생성해서 패치 반영
+    out_zip = build_output_zip_path(src_zip)
+    patch_map = {zip_rel: src_path for zip_rel, src_path, _, _ in ok_sorted}
+    patched, kept, added = rebuild_zip_to_new(src_zip, out_zip, patch_map, allow_add=True)
+
+    print(f"\n[OUT] {out_zip}")
     print(f"\n✔ DONE: added({added}), patched({patched}), kept({kept}), miss({miss_count})")
 
 
@@ -334,12 +359,31 @@ def main():
     cfg = load_config()
     filelist_lines = read_filelist(cfg["filelist"])
 
-    patch_zip(
-        cfg["zip_file"],
-        cfg["root_path"],
-        filelist_lines,
-        bool(cfg.get("is_backup", False)),
-    )
+    zip_files = cfg.get("zip_files", [])
+    # zip_files는 리스트가 정식이지만, 혹시 문자열이면 호환 처리
+    if isinstance(zip_files, str):
+        zip_files = [zip_files]
+    if not isinstance(zip_files, list):
+        raise ValueError("config zip_files must be a list (or a string)")
+
+    # Proceed? 프롬프트 나오기 전에 zip_files 존재 여부를 '전체' 점검
+    zip_paths = [Path(z) for z in zip_files]
+    missing = [p for p in zip_paths if not p.exists()]
+
+    if missing:
+        print("✖ ABORT: zip_files 중 존재하지 않는 zip 파일이 있습니다.\n")
+        for p in missing:
+            print(f"[MISSING] {p}")
+        return
+
+    for zf in zip_files:
+        print(f"\n=== SOURCE ZIP: {zf} ===")
+        patch_zip(
+            zf,
+            cfg["root_path"],
+            filelist_lines,
+            bool(cfg.get("is_backup", False)),
+        )
 
 
 if __name__ == "__main__":
