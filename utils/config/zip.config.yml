@@ -4,5 +4,7 @@ zip_files:
 
 root_path: "D:/workspace/java/SpringMVC-MyBatis-Demo/out/artifacts/SpringDemo_war_exploded"
 filelist: "./config/zip.filelist.txt"
+out_path: "D:/deploy/lib/out"
 
 is_backup: true
+is_confirm: false

@@ -1,6 +1,6 @@
 
 zip_files:
-  - "D:/deploy/lib/SpringDemo_war_exploded.jar"
+  - "D:/deploy/lib/out/SpringDemo_war_exploded.jar"
 
 filelist: "./config/zip_print.filelist.txt"
 

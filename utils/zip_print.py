@@ -171,11 +171,8 @@ def print_zip_sources(zip_path: Path, zf: zipfile.ZipFile, targets: list[str], c
 
     decompile_class = bool(cfg.get("decompile_class", False))
 
-    print("\n" + "-" * 80)
-    print(f"[SRC] {zip_path} (from filelist)")
-
     for name in targets:
-        print("\n" + ("." * 80))
+        print("\n" + ("-" * 80))
         print(f"[FILE] {name}")
 
         try:
@@ -228,6 +225,7 @@ def list_zip(zip_path: Path, print_line: int, print_src: bool, filelist_targets:
         # 기존 출력 유지 + 마지막에 추가 출력
         if print_src:
             print_zip_sources(zip_path, zf, filelist_targets, cfg)
+            print("\n" + ("-" * 80))
 
     return 0
 

@@ -34,8 +34,9 @@ def zip_datetime_str(zi: zipfile.ZipInfo) -> str:
 
 def diff_hms(zip_dt_str: Optional[str], src_path: Path) -> str:
     """
-    zip 파일 시간과 실제 파일 수정시간 차이를 HH:MM:SS 로 반환
-    zip_dt_str 가 없으면 "—"
+    zip 파일 시간과 실제 파일 수정시간 차이를 {일수}d HH:MM:SS 로 반환
+    - 일수는 3자리 고정 (예: 001d 02:10:05)
+    - zip_dt_str 가 없으면 "—"
     """
     if not zip_dt_str or not src_path.exists():
         return "—"
@@ -44,10 +45,14 @@ def diff_hms(zip_dt_str: Optional[str], src_path: Path) -> str:
     src_ts = src_path.stat().st_mtime
     diff = abs(int(zip_ts - src_ts))
 
+    days = diff // 86400
+    diff = diff % 86400
+
     h = diff // 3600
     m = (diff % 3600) // 60
     s = diff % 60
-    return f"{h:02}:{m:02}:{s:02}"
+
+    return f"{days:03d}d {h:02}:{m:02}:{s:02}"
 
 
 def load_config():
@@ -56,12 +61,6 @@ def load_config():
 
 
 def read_filelist(filelist_path: str) -> list[str]:
-    """
-    filelist 원문 라인을 그대로 읽는다.
-    - 빈 줄/주석 제거
-    - Windows '\' 는 '/' 로 통일
-      (절대경로 판단/실제 파일 접근은 Path로 처리하므로 동작 문제 없음)
-    """
     p = Path(filelist_path)
     if not p.exists():
         raise FileNotFoundError(p)
@@ -76,11 +75,6 @@ def read_filelist(filelist_path: str) -> list[str]:
 
 
 def to_zip_rel_from_absolute(root_path: Path, abs_path: Path) -> str:
-    """
-    절대경로를 zip 내부 경로(zip_rel)로 변환.
-    - abs_path가 root_path 하위면 root_path 기준 상대경로로 구조 유지
-    - 아니면 basename(파일명)만 사용(절대경로가 zip 엔트리로 들어가는 것 방지)
-    """
     rp = root_path.resolve()
     ap = abs_path.resolve()
     try:
@@ -91,17 +85,10 @@ def to_zip_rel_from_absolute(root_path: Path, abs_path: Path) -> str:
         return abs_path.name
 
 
-# WorkItem = (zip_rel, src_path, filelist_raw, is_abs_input)
 WorkItem = Tuple[str, Path, str, bool]
 
 
 def build_work_items(root_path: Path, filelist_lines: list[str]) -> List[WorkItem]:
-    """
-    filelist 한 줄을 (zip_rel, src_path, filelist_raw, is_abs_input) 로 정규화 + zip_rel 기준 DISTINCT
-    - 상대경로: zip_rel=그대로, src_path=root_path/zip_rel, is_abs_input=False
-    - 절대경로: src_path=그대로, zip_rel은 규칙에 따라 변환, is_abs_input=True
-    - DISTINCT: 같은 zip_rel 이 여러 번 나오면 "뒤에 나온 항목"이 최종 우선권
-    """
     seen: Dict[str, WorkItem] = {}
 
     for raw in filelist_lines:
@@ -116,26 +103,30 @@ def build_work_items(root_path: Path, filelist_lines: list[str]) -> List[WorkIte
             src_path = (root_path / zip_rel)
 
         zip_rel = zip_rel.replace("\\", "/")
-
-        # DISTINCT (뒤에 나온 항목 우선)
         seen[zip_rel] = (zip_rel, src_path, raw, is_abs)
 
     return list(seen.values())
 
 
-def backup_zip_if_enabled(zip_file: Path, is_backup: bool) -> Optional[Path]:
-    if not is_backup:
+def ensure_out_dir(out_path: str) -> Path:
+    p = Path(out_path).expanduser()
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def backup_existing_out_if_enabled(final_out: Path, is_backup: bool, out_dir: Path) -> Optional[Path]:
+    if not is_backup or not final_out.exists():
         return None
 
-    backup_dir = zip_file.parent / "backup"
+    backup_dir = out_dir / "backup"
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     ts = now_ts()
-    backup_name = f"{zip_file.stem}_{ts}{zip_file.suffix}"
+    backup_name = f"{final_out.stem}_{ts}{final_out.suffix}"
     backup_path = backup_dir / backup_name
 
-    shutil.copy2(zip_file, backup_path)
-    print(f"[BACKUP] {backup_path}")
+    shutil.copy2(final_out, backup_path)
+    print(f"[BACKUP] {backup_path.resolve()}")
     return backup_path
 
 
@@ -154,7 +145,7 @@ def precheck_sources(items: List[WorkItem]) -> Tuple[List[WorkItem], List[WorkIt
 def file_mtime_to_zip_datetime(p: Path) -> tuple:
     ts = p.stat().st_mtime
     dt = datetime.fromtimestamp(ts)
-    sec = dt.second - (dt.second % 2)  # ZIP DOS time 2초 단위 보정
+    sec = dt.second - (dt.second % 2)
     return (dt.year, dt.month, dt.day, dt.hour, dt.minute, sec)
 
 
@@ -173,14 +164,10 @@ def clone_zipinfo(src_info: zipfile.ZipInfo) -> zipfile.ZipInfo:
     return zi
 
 
-def build_output_zip_path(src_zip: Path) -> Path:
-    """
-    원본 zip은 수정하지 않음.
-    패치 반영 zip은 {파일명}_{timestamp}.{확장자} 로 새로 생성.
-    """
-    ts = now_ts()
-    out_name = f"{src_zip.stem}_{ts}{src_zip.suffix}"
-    return src_zip.with_name(out_name)
+def build_output_paths(src_zip: Path, out_dir: Path) -> Tuple[Path, Path]:
+    final_out = out_dir / src_zip.name
+    tmp_out = out_dir / f"{src_zip.stem}_{now_ts()}{src_zip.suffix}"
+    return final_out, tmp_out
 
 
 def rebuild_zip_to_new(
@@ -189,12 +176,7 @@ def rebuild_zip_to_new(
     patch_map: Dict[str, Path],
     allow_add: bool = True,
 ) -> Tuple[int, int, int]:
-    """
-    - src_zip 을 읽어서 out_zip 으로 새로 생성
-    - patch_map(zip_rel -> src_path)에 있는 엔트리는 교체
-    - 나머지는 ZipInfo/데이터 그대로 복사(수정시간 유지)
-    - allow_add=True 이면 zip에 없던 항목은 추가
-    """
+
     tmp_zip = out_zip.with_name(f"{out_zip.name}.tmp_{now_ts()}")
 
     patched = 0
@@ -236,7 +218,6 @@ def rebuild_zip_to_new(
 
                 added += 1
 
-    # 최종 out_zip로 이동
     if out_zip.exists():
         out_zip.unlink()
     os.replace(tmp_zip, out_zip)
@@ -251,7 +232,6 @@ def print_lists_in_format(
     miss_sorted: List[WorkItem],
     root_path: Path,
 ):
-    # 출력 전에 root_path 출력
     print(f"[ROOT] {root_path}\n")
 
     added_list: List[WorkItem] = []
@@ -260,7 +240,6 @@ def print_lists_in_format(
     for zip_rel, src, raw, is_abs in ok_sorted:
         (patch_list if zip_rel in zip_entries else added_list).append((zip_rel, src, raw, is_abs))
 
-    # 시간 내림차순 정렬(소스 파일 mtime 기준)
     added_list.sort(key=lambda x: x[1].stat().st_mtime, reverse=True)
     patch_list.sort(key=lambda x: x[1].stat().st_mtime, reverse=True)
     miss_sorted = sorted(
@@ -270,7 +249,6 @@ def print_lists_in_format(
     )
 
     def filelist_hint(raw: str, is_abs: bool) -> str:
-        # filelist에 절대경로가 있었다면 "(<filelist 경로>)" 추가
         return f" ({raw})" if is_abs else ""
 
     for zip_rel, src, raw, is_abs in added_list:
@@ -279,8 +257,8 @@ def print_lists_in_format(
         diff_str = diff_hms(zip_dt, src)
         zip_disp = zip_dt if zip_dt else "—"
         print(
-            f"[ADDED] ({diff_str}) ({zip_disp}) {file_mtime_str(src)} | {file_size_mb(src):6.2f} MB | {zip_rel}"
-            f"{filelist_hint(raw, is_abs)}"
+            f"[ADDED] ({diff_str}) ({zip_disp}) {file_mtime_str(src)} | "
+            f"{file_size_mb(src):6.2f} MB | {zip_rel}{filelist_hint(raw, is_abs)}"
         )
 
     for zip_rel, src, raw, is_abs in patch_list:
@@ -289,27 +267,28 @@ def print_lists_in_format(
         diff_str = diff_hms(zip_dt, src)
         zip_disp = zip_dt if zip_dt else "—"
         print(
-            f"[PATCH] ({diff_str}) ({zip_disp}) {file_mtime_str(src)} | {file_size_mb(src):6.2f} MB | {zip_rel}"
-            f"{filelist_hint(raw, is_abs)}"
+            f"[PATCH] ({diff_str}) ({zip_disp}) {file_mtime_str(src)} | "
+            f"{file_size_mb(src):6.2f} MB | {zip_rel}{filelist_hint(raw, is_abs)}"
         )
 
     for zip_rel, src, raw, is_abs in miss_sorted:
         print(
-            f"[MISS]  {file_mtime_str(src):>19} | {0.00:6.2f} MB | {zip_rel}"
-            f"{filelist_hint(raw, is_abs)}"
+            f"[MISS]  {file_mtime_str(src):>19} | {0.00:6.2f} MB | "
+            f"{zip_rel}{filelist_hint(raw, is_abs)}"
         )
 
 
-def patch_zip(src_zip_file: str, root_path: str, filelist_lines: list[str], is_backup: bool):
+def patch_zip(
+    src_zip_file: str,
+    root_path: str,
+    filelist_lines: list[str],
+    is_backup: bool,
+    out_dir: Path,
+    is_confirm: bool,   # ★ 추가
+):
     src_zip = Path(src_zip_file)
     root_path = Path(root_path)
 
-    if not src_zip.exists():
-        raise FileNotFoundError(src_zip)
-    if not root_path.exists():
-        raise FileNotFoundError(root_path)
-
-    # filelist 정규화: (zip_rel, src_path, raw, is_abs) + DISTINCT
     items = build_work_items(root_path, filelist_lines)
 
     with zipfile.ZipFile(src_zip, "r") as z:
@@ -319,8 +298,8 @@ def patch_zip(src_zip_file: str, root_path: str, filelist_lines: list[str], is_b
 
     ok, miss = precheck_sources(items)
 
-    ok_sorted = sorted(ok, key=lambda x: x[0])      # zip_rel 기준 정렬
-    miss_sorted = sorted(miss, key=lambda x: x[0])  # zip_rel 기준 정렬
+    ok_sorted = sorted(ok, key=lambda x: x[0])
+    miss_sorted = sorted(miss, key=lambda x: x[0])
 
     patched_count = sum(1 for zip_rel, _, _, _ in ok_sorted if zip_rel in zip_entries)
     added_count = sum(1 for zip_rel, _, _, _ in ok_sorted if zip_rel not in zip_entries)
@@ -328,29 +307,41 @@ def patch_zip(src_zip_file: str, root_path: str, filelist_lines: list[str], is_b
 
     if miss_sorted:
         print_lists_in_format(zip_entries, zip_info_map, ok_sorted, miss_sorted, root_path)
-        print(f"\n✖ ABORT: added({added_count}), patched({patched_count}), kept({zip_total_entries}), miss({miss_count})")
+        print(
+            f"\n✖ ABORT: added({added_count}), patched({patched_count}), "
+            f"kept({zip_total_entries}), miss({miss_count})"
+        )
         return
 
-    # 목록 출력(Proceed? 이전)
     print_lists_in_format(zip_entries, zip_info_map, ok_sorted, [], root_path)
 
-    # 진행 여부 확인
-    print("\nProceed? (y = YES / anything else = NO): ", end="")
-    resp = input().strip()
-    if resp.lower() != "y":
-        print("\n✖ CANCELED")
-        return
+    # ★★★ 핵심 변경 부분 ★★★
+    if is_confirm:
+        print("\nProceed? (y = YES / anything else = NO): ", end="")
+        resp = input().strip()
+        if resp.lower() != "y":
+            print("\n✖ CANCELED")
+            return
+    else:
+        print("\n[SKIP CONFIRM]")
 
-    # y 로 진행 시점에 backup 수행
-    backup_zip_if_enabled(src_zip, is_backup)
+    final_out, tmp_out = build_output_paths(src_zip, out_dir)
 
-    # 원본 zip은 수정하지 않고, 신규 zip으로 생성해서 패치 반영
-    out_zip = build_output_zip_path(src_zip)
+    backup_existing_out_if_enabled(final_out, is_backup, out_dir)
+
     patch_map = {zip_rel: src_path for zip_rel, src_path, _, _ in ok_sorted}
-    patched, kept, added = rebuild_zip_to_new(src_zip, out_zip, patch_map, allow_add=True)
 
-    print(f"\n[OUT] {out_zip}")
-    print(f"\n✔ DONE: added({added}), patched({patched}), kept({kept}), miss({miss_count})")
+    patched, kept, added = rebuild_zip_to_new(src_zip, tmp_out, patch_map, allow_add=True)
+
+    if final_out.exists():
+        final_out.unlink()
+    os.replace(tmp_out, final_out)
+
+    print(f"\n[OUT] {final_out.resolve()}")
+    print(
+        f"\n✔ DONE: added({added}), patched({patched}), "
+        f"kept({kept}), miss({miss_count})"
+    )
 
 
 def main():
@@ -360,13 +351,16 @@ def main():
     filelist_lines = read_filelist(cfg["filelist"])
 
     zip_files = cfg.get("zip_files", [])
-    # zip_files는 리스트가 정식이지만, 혹시 문자열이면 호환 처리
     if isinstance(zip_files, str):
         zip_files = [zip_files]
     if not isinstance(zip_files, list):
         raise ValueError("config zip_files must be a list (or a string)")
 
-    # Proceed? 프롬프트 나오기 전에 zip_files 존재 여부를 '전체' 점검
+    out_path = cfg.get("out_path", "./out")
+    out_dir = ensure_out_dir(out_path)
+
+    is_confirm = bool(cfg.get("is_confirm", True))   # ★ 추가 (기본값 true)
+
     zip_paths = [Path(z) for z in zip_files]
     missing = [p for p in zip_paths if not p.exists()]
 
@@ -383,6 +377,8 @@ def main():
             cfg["root_path"],
             filelist_lines,
             bool(cfg.get("is_backup", False)),
+            out_dir,
+            is_confirm,   # ★ 전달
         )
 
 
