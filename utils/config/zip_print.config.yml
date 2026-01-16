@@ -1,0 +1,15 @@
+
+zip_files:
+  - "D:/deploy/lib/SpringDemo_war_exploded.jar"
+
+filelist: "./config/zip_print.filelist.txt"
+
+print_line: 20
+print_src: true
+
+# 추가 옵션
+decompile_class: true
+# CFR jar 경로 (있으면 Java 소스로 디컴파일)
+cfr_jar: "./files/cfr-0.152.jar"
+# CFR 없을 때 javap 사용 여부(바이트코드 출력)
+use_javap_fallback: true
