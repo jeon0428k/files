@@ -3,7 +3,7 @@ import zipfile
 from pathlib import Path
 from datetime import datetime
 
-CONFIG_FILE = "./config/zip.config.yml"
+CONFIG_FILE = "./config/zip_print.config.yml"
 
 
 def now_str() -> str:
@@ -25,6 +25,11 @@ def load_config() -> dict:
         raise ValueError("config zip_files must be a list (or a string)")
 
     cfg["zip_files"] = zip_files
+
+    # 추가 옵션 (없으면 기본값)
+    cfg["print_src"] = bool(cfg.get("print_src", False))
+    cfg["filelist"] = cfg.get("filelist", "")
+
     return cfg
 
 
@@ -49,7 +54,61 @@ def diff_hms(dt: datetime) -> str:
     return f"{days:03}d {h:02}:{m:02}:{s:02}"
 
 
-def list_zip(zip_path: Path, print_line: int) -> int:
+def read_filelist(filelist_path: str) -> list[str]:
+    """
+    filelist 파일에서 zip 내부 경로 목록을 읽는다.
+    - 빈 줄, 주석(#) 무시
+    - 앞뒤 공백 제거
+    """
+    if not filelist_path:
+        return []
+
+    p = Path(filelist_path)
+    if not p.exists():
+        print(f"[WARN] filelist not found: {p}")
+        return []
+
+    items: list[str] = []
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        items.append(s)
+    return items
+
+
+def print_zip_sources(zip_path: Path, zf: zipfile.ZipFile, targets: list[str]) -> None:
+    """
+    targets: zip 내부 경로(ZipInfo.filename) 목록
+    zip 파일의 마지막에 소스 내용을 추가 출력한다.
+    """
+    if not targets:
+        return
+
+    for name in targets:
+        print("\n" + ("-" * 80))
+        print(f"[FILE] {name}")
+
+        try:
+            with zf.open(name, "r") as fp:
+                data = fp.read()
+        except KeyError:
+            print("[MISS] not found in zip")
+            continue
+        except Exception as e:
+            print(f"[ERROR] read failed: {e}")
+            continue
+
+        # 텍스트로 출력 (바이너리면 깨질 수 있으니 replace)
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = data.decode("utf-8", errors="replace")
+
+        print(text.rstrip("\n"))
+
+
+def list_zip(zip_path: Path, print_line: int, print_src: bool, filelist_targets: list[str]) -> int:
     if not zip_path.exists():
         print(f"[ERROR] zip_file not found: {zip_path}")
         return 2
@@ -62,14 +121,19 @@ def list_zip(zip_path: Path, print_line: int) -> int:
                 continue
             items.append((zipinfo_dt(zi), zi.filename, zi))
 
-    # 시간 내림차순, 파일명 오름차순
-    items.sort(key=lambda x: (-x[0].timestamp(), x[1]))
+        # 시간 내림차순, 파일명 오름차순
+        items.sort(key=lambda x: (-x[0].timestamp(), x[1]))
 
-    print(f"[ZIP] {zip_path}")
-    print(f"[COUNT] total_files={len(items)}, print_line={print_line}\n")
+        print(f"[ZIP] {zip_path}")
+        print(f"[COUNT] total_files={len(items)}, print_line={print_line}\n")
 
-    for dt, name, zi in items[:print_line]:
-        print(f"({diff_hms(dt)}) {dt.strftime('%Y-%m-%d %H:%M:%S')} | {to_mb(zi.file_size):6.2f} MB | {name}")
+        for dt, name, zi in items[:print_line]:
+            print(f"({diff_hms(dt)}) {dt.strftime('%Y-%m-%d %H:%M:%S')} | {to_mb(zi.file_size):6.2f} MB | {name}")
+
+        # 기존 출력 유지 + 마지막에 추가 출력
+        if print_src:
+            print_zip_sources(zip_path, zf, filelist_targets)
+            print("\n" + ("-" * 80))
 
     return 0
 
@@ -83,12 +147,15 @@ def main() -> int:
     if print_line < 1:
         print_line = 1
 
+    print_src = bool(cfg.get("print_src", False))
+    filelist_targets = read_filelist(str(cfg.get("filelist", ""))) if print_src else []
+
     # zip_files 전체 순회 출력
     rc = 0
     for z in cfg["zip_files"]:
         zip_path = Path(str(z))
         print("=" * 80)
-        r = list_zip(zip_path, print_line)
+        r = list_zip(zip_path, print_line, print_src, filelist_targets)
         if r != 0:
             rc = r
 
