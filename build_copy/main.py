@@ -1,6 +1,7 @@
 import sys
 import yaml
 import shutil
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -30,7 +31,33 @@ class Tee:
             s.flush()
 
 
-def read_worklist(worklist_file: str) -> tuple[list[Path], dict[Path, list[str]]]:
+def _clean_rel_path(s: str) -> str:
+    return str(s).strip().strip("/").strip("\\")
+
+
+def resolve_worklist_path(raw: str, repo_roots: list[Path]) -> Path:
+    """
+    worklist 항목 경로 해석 규칙:
+    - 절대경로: 그대로 resolve
+    - 상대경로: 각 repositories.root 와 결합(root/rel) 해서 존재하는 첫 경로를 사용(설정 순서)
+    - 어떤 repo에서도 못 찾으면: ABORT
+    """
+    s = raw.strip()
+    p = Path(s).expanduser()
+
+    if p.is_absolute():
+        return p.resolve()
+
+    for root in repo_roots:
+        cand = root / p
+        if cand.exists():
+            return cand.resolve()
+
+    print(f"[WORKLIST-FAIL] relative path not found in any repositories.root: {raw}")
+    sys.exit(2)
+
+
+def read_worklist(worklist_file: str, repo_roots: list[Path]) -> tuple[list[Path], dict[Path, list[str]]]:
     p = Path(worklist_file)
     if not p.exists():
         print(f"> {now_str()}")
@@ -45,18 +72,53 @@ def read_worklist(worklist_file: str) -> tuple[list[Path], dict[Path, list[str]]
         if not s or s.startswith("#"):
             continue
 
-        abs_path = Path(s).expanduser().resolve()
+        abs_path = resolve_worklist_path(s, repo_roots)
         items.append(abs_path)
-        orin_map.setdefault(abs_path, []).append(s)  # 원본 문자열 보존(중복도 그대로)
+        orin_map.setdefault(abs_path, []).append(s)  # 원본 문자열 보존(상대/절대 그대로)
 
     return items, orin_map
+
+
+def normalize_svr_path_pairs(raw_svr_path) -> list[tuple[str, str]]:
+    """
+    svr_path 지원 형태:
+      1) ["dev/a", "prd/b"]
+      2) [("/wasadmin", "dev/a"), ("/root", "prd/b")]
+      3) [["/wasadmin", "dev/a"], ["/root", "prd/b"]]  (YAML 안전 표기)
+    return: [(prefix, path), ...]  (path는 비어있으면 제외)
+    """
+    if raw_svr_path is None:
+        return []
+
+    if isinstance(raw_svr_path, str):
+        raw_svr_path = [raw_svr_path]
+
+    if not isinstance(raw_svr_path, list):
+        return []
+
+    out: list[tuple[str, str]] = []
+    for item in raw_svr_path:
+        if isinstance(item, str):
+            p = item.strip()
+            if p:
+                out.append(("", p))
+            continue
+
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            prefix = "" if item[0] is None else str(item[0]).strip()
+            path = "" if item[1] is None else str(item[1]).strip()
+            if path:
+                out.append((prefix, path))
+            continue
+
+    return out
 
 
 def build_repo_base_map(repositories: list[dict]) -> dict[str, dict]:
     """
     config.yml repositories 항목에서 repo별 설정을 정규화해서 저장
-    - dir (단일 문자열) -> svr_path (리스트) 로 변경
-    - svr_path 가 비어있을 수도 있음 (그 경우 repo_root 바로 아래로 복사)
+    - dir(레거시) -> svr_path 로 호환
+    - svr_path: 내부적으로 list[tuple[prefix, path]] 로 정규화
     """
     repo_base_map: dict[str, dict] = {}
     for r in repositories:
@@ -64,24 +126,23 @@ def build_repo_base_map(repositories: list[dict]) -> dict[str, dict]:
         root = Path(r["root"]).resolve()
         base = (root / r["path"]).resolve()
 
-        # dir 호환(기존 설정이 남아있으면 단일값을 리스트로)
-        svr_path = r.get("svr_path", None)
-        if svr_path is None:
+        # legacy dir 호환
+        raw_svr_path = r.get("svr_path", None)
+        if raw_svr_path is None:
             legacy_dir = r.get("dir", "")
-            svr_path = [legacy_dir] if legacy_dir else []
-        elif isinstance(svr_path, str):
-            svr_path = [svr_path]
-        else:
-            svr_path = svr_path or []
+            raw_svr_path = [legacy_dir] if legacy_dir else []
+
+        svr_path_pairs = normalize_svr_path_pairs(raw_svr_path)
 
         repo_base_map[name] = {
             "name": name,
             "root": root,
             "base": base,
-            "svr_path": svr_path,
+            "svr_path": svr_path_pairs,  # [(prefix, path), ...]
             "execute": bool(r.get("execute", False)),
             "trans_path": r.get("trans_path", []) or [],
             "trans_file": r.get("trans_file", []) or [],
+            "build_file": r.get("build_file"),
         }
     return repo_base_map
 
@@ -164,8 +225,7 @@ def apply_transform_one(src_abs: Path, repo_base_map: dict[str, dict]) -> tuple[
 
 def apply_transforms_grouped(inputs: list[Path], repo_base_map: dict[str, dict]) -> dict[Path, list[Path]]:
     grouped: dict[Path, list[Path]] = {}
-
-    for src_abs in inputs:  # 이미 resolve된 절대경로
+    for src_abs in inputs:
         changed, _ = apply_transform_one(src_abs, repo_base_map)
         grouped.setdefault(changed, []).append(src_abs)
 
@@ -207,6 +267,26 @@ def ensure_empty_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
+def normalize_copy_roots(svr_path_pairs: list[tuple[str, str]], repo_root: Path) -> list[Path]:
+    """
+    실제 복사 대상 root 리스트 생성.
+    - svr_path 비어있으면 repo_root 1개
+    - 있으면 repo_root / path
+    """
+    if not svr_path_pairs:
+        repo_root.mkdir(parents=True, exist_ok=True)
+        return [repo_root]
+
+    roots: list[Path] = []
+    for _, p in svr_path_pairs:
+        p2 = _clean_rel_path(p)
+        root = (repo_root / p2) if p2 else repo_root
+        root.mkdir(parents=True, exist_ok=True)
+        roots.append(root)
+
+    return roots
+
+
 def copy_grouped_and_log_multi(
     base_path: Path,
     target_roots: list[Path],
@@ -242,10 +322,7 @@ def copy_grouped_and_log_multi(
             except Exception:
                 pass
 
-        if copied_list:
-            logs.append(("O", changed, copied_list, src_list))
-        else:
-            logs.append(("X", changed, [], src_list))
+        logs.append(("O" if copied_list else "X", changed, copied_list, src_list))
 
     return sorted(logs, key=lambda x: (0 if x[0] == "O" else 1, str(x[1])))
 
@@ -299,40 +376,34 @@ def print_unmapped(unmapped: dict[Path, list[Path]], is_orin_log: bool, orin_map
 
 
 def count_grouped(grouped: dict[Path, list[Path]]) -> tuple[int, int]:
-    changed_cnt = len(grouped)
-    orin_cnt = sum(len(v) for v in grouped.values())
-    return changed_cnt, orin_cnt
+    return len(grouped), sum(len(v) for v in grouped.values())
 
 
 def add_counts(a: tuple[int, int], b: tuple[int, int]) -> tuple[int, int]:
     return a[0] + b[0], a[1] + b[1]
 
 
-def normalize_svr_paths(svr_paths: list[str], repo_root: Path) -> list[Path]:
+def build_prefix_by_label(svr_path_pairs: list[tuple[str, str]]) -> dict[str, str]:
     """
-    - svr_path 가 비어있으면 repo_root 하나만 반환 (기본 동작)
-    - 값이 있으면 repo_root / 각 svr_path 반환
+    (prefix, "dev/a") -> label=dev 에 대해 prefix 저장
+    - label 중복 시 첫 항목 우선(설정 순서)
     """
-    if not svr_paths:
-        repo_root.mkdir(parents=True, exist_ok=True)
-        return [repo_root]
-
-    roots: list[Path] = []
-    for p in svr_paths:
-        p = str(p).strip().strip("/").strip("\\")
-        root = repo_root / p if p else repo_root
-        root.mkdir(parents=True, exist_ok=True)
-        roots.append(root)
-    return roots
+    out: dict[str, str] = {}
+    for prefix, p in svr_path_pairs:
+        p2 = _clean_rel_path(p)
+        if not p2:
+            continue
+        label = p2.split("/")[0].split("\\")[0]
+        if label and label not in out:
+            out[label] = "" if prefix is None else str(prefix).strip()
+    return out
 
 
-# ----------------------------
-# 성공 copy 경로를 dev/prd(첫 path) 기준으로 모아 출력
-# ----------------------------
 def add_success_copied_by_label(
     success_by_label: dict[str, list[str]],
     repo_root: Path,
     copied_list: list[Path],
+    prefix_by_label: dict[str, str],
 ) -> None:
     for copied in copied_list:
         try:
@@ -348,6 +419,10 @@ def add_success_copied_by_label(
         rest_parts = parts[1:]
         rest = "/" + "/".join(rest_parts) if rest_parts else "/"
 
+        prefix = prefix_by_label.get(label, "")
+        if prefix:
+            rest = prefix.rstrip("/") + rest
+
         success_by_label.setdefault(label, []).append(rest)
 
 
@@ -362,6 +437,69 @@ def print_success_by_label(success_by_label: dict[str, list[str]]) -> None:
         print("---------------------------------")
         for p in items:
             print(p)
+        print("=================================\n")
+
+
+def run_ant_builds(ant_cmd: str, repo_base_map: dict[str, dict]) -> None:
+    """
+    repositories 별 build_file 이 있으면 ant_cmd 로 ant build 실행
+    - 실패하면 즉시 종료
+    """
+    if not ant_cmd:
+        return
+
+    ant = Path(str(ant_cmd)).expanduser()
+    if not ant.exists():
+        print(f"ant_cmd not found: {ant}")
+        sys.exit(2)
+
+    for repo_name, info in repo_base_map.items():
+        if not info.get("execute", False):
+            continue
+
+        build_file = info.get("build_file")
+        if not build_file:
+            continue
+
+        bf = Path(str(build_file)).expanduser()
+        if not bf.exists():
+            print("=================================")
+            print(f"[BUILD] {repo_name}")
+            print("---------------------------------")
+            print(f"build_file not found: {bf}")
+            print("=================================")
+            sys.exit(2)
+
+        print("=================================")
+        print(f"[BUILD] {repo_name}")
+        print("---------------------------------")
+        print(f"ant_cmd   : {ant}")
+        print(f"build_file: {bf}")
+        print("---------------------------------")
+
+        cmd = ["cmd", "/c", str(ant), "-f", str(bf)]
+
+        try:
+            r = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except Exception as e:
+            print(f"[BUILD-FAIL] exec error: {e}")
+            print("=================================")
+            sys.exit(2)
+
+        if r.stdout:
+            print(r.stdout.rstrip())
+
+        if r.returncode != 0:
+            print(f"[BUILD-FAIL] returncode={r.returncode}")
+            print("=================================")
+            sys.exit(2)
+
+        print("[BUILD-OK]")
         print("=================================\n")
 
 
@@ -382,13 +520,32 @@ def run_pipeline(config: dict) -> None:
         sys.exit(2)
 
     repo_base_map = build_repo_base_map(repositories)
+    repo_roots = [info["root"] for info in repo_base_map.values()]
 
-    raw_inputs, orin_map = read_worklist(worklist_file)
+    # ----------------------------
+    # Ant build 먼저 실행
+    # ----------------------------
+    ant_cmd = config.get("ant_cmd")
+    has_build = any(
+        bool(info.get("build_file")) and bool(info.get("execute", False))
+        for info in repo_base_map.values()
+    )
+
+    if has_build and not ant_cmd:
+        print("ant_cmd is required because repositories has build_file")
+        sys.exit(2)
+
+    if has_build:
+        run_ant_builds(str(ant_cmd), repo_base_map)
+
+    # ----------------------------
+    # 이후 기존 기능 그대로 실행
+    # ----------------------------
+    raw_inputs, orin_map = read_worklist(worklist_file, repo_roots)
     grouped_all = apply_transforms_grouped(raw_inputs, repo_base_map)
     repo_grouped, unmapped = classify_grouped(grouped_all, repo_base_map)
 
     total_all = (len(grouped_all), sum(len(v) for v in grouped_all.values()))
-
     total_success = (0, 0)
     total_fail = (0, 0)
     total_unmapped = count_grouped(unmapped)
@@ -397,7 +554,7 @@ def run_pipeline(config: dict) -> None:
 
     for repo_name, info in repo_base_map.items():
         execute: bool = info["execute"]
-        svr_paths: list[str] = info["svr_path"]
+        svr_path_pairs: list[tuple[str, str]] = info["svr_path"]
         base_path: Path = info["base"]
 
         print("=================================")
@@ -418,7 +575,8 @@ def run_pipeline(config: dict) -> None:
         repo_root = copy_root / repo_name
         ensure_empty_dir(repo_root)
 
-        target_roots = normalize_svr_paths(svr_paths, repo_root)
+        target_roots = normalize_copy_roots(svr_path_pairs, repo_root)
+        prefix_by_label = build_prefix_by_label(svr_path_pairs)
 
         print(f"target root: {base_path}")
         print(f"copy roots: {format_copy_block(target_roots)}")
@@ -436,7 +594,7 @@ def run_pipeline(config: dict) -> None:
                     print(f"    {format_orin_block(src_list, orin_map)}")
                 success_grouped[changed] = src_list
 
-                add_success_copied_by_label(success_copied_by_label, repo_root, copied_list)
+                add_success_copied_by_label(success_copied_by_label, repo_root, copied_list, prefix_by_label)
             else:
                 print(f"[X] {changed}")
                 if is_orin_log:
@@ -474,7 +632,7 @@ def main():
     try:
         streams = [sys.__stdout__]
 
-        for fp in [summary_file, work_summary_file]:
+        for fp in (summary_file, work_summary_file):
             if fp:
                 p = Path(fp)
                 p.parent.mkdir(parents=True, exist_ok=True)

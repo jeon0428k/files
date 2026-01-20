@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="SpringMVC-MyBatis-Demo" default="build-only" basedir=".">
+
+    <!-- ==== 경로 설정 ==== -->
+    <property name="workspace" value="D:/workspace/java/SpringMVC-MyBatis-Demo"/>
+
+    <property name="src.dir" value="${workspace}/src/main/java"/>
+    <property name="resources.dir" value="${workspace}/src/main/resources"/>
+    <property name="webapp.dir" value="${workspace}/src/main/webapp"/>
+    <property name="build.dir" value="${workspace}/build"/>
+    <property name="lib.dir" value="${workspace}/lib"/>
+
+    <!-- ==== classpath 정의 ==== -->
+    <path id="classpath">
+        <pathelement path="${build.dir}"/>
+        <fileset dir="${lib.dir}" includes="**/*.jar"/>
+    </path>
+
+    <!-- ==== clean ==== -->
+    <target name="clean">
+        <echo message="Cleaning build and dist directories..."/>
+        <delete dir="${build.dir}"/>
+    </target>
+
+    <!-- ==== webapp 복사 ==== -->
+    <target name="copy-resources" depends="clean">
+        <echo message="Copying webapp resources..."/>
+        <mkdir dir="${build.dir}"/>
+        <copy todir="${build.dir}">
+            <fileset dir="${webapp.dir}"/>
+        </copy>
+    </target>
+
+    <!-- ==== compile ==== -->
+    <target name="compile" depends="copy-resources">
+        <echo message="Compiling Java sources..."/>
+        <mkdir dir="${build.dir}/WEB-INF/classes"/>
+        <javac srcdir="${src.dir}" destdir="${build.dir}/WEB-INF/classes" includeantruntime="false" encoding="UTF-8">
+            <classpath refid="classpath"/>
+        </javac>
+
+        <!-- resources 복사 -->
+        <copy todir="${build.dir}/WEB-INF/classes">
+            <fileset dir="${resources.dir}"/>
+        </copy>
+    </target>
+
+    <!-- ==== build-only ==== -->
+    <target name="build-only" depends="compile">
+        <echo message="Build completed (classes + resources + webapp)."/>
+    </target>
+
+</project>

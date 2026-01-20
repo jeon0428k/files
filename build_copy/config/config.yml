@@ -1,19 +1,21 @@
 
+ant_cmd: "D:/program/apache-ant-1.10.15/bin/ant.bat"
 copy_dir: "D:/deploy/build"
 worklist_file: "./config/worklist.txt"
 summary_file: "./logs/summary.log"
-#is_orin_log: true
-is_orin_log: false
+is_orin_log: true
+#is_orin_log: false
 
 repositories:
   - name: "SpringMVC-MyBatis-Demo"
     execute: true
 #    execute: false
     root: "D:/workspace/java/SpringMVC-MyBatis-Demo"
-    path: "out/artifacts/SpringDemo_war_exploded"
+    path: "build"
+    build_file: "./files/SpringMVC-MyBatis-Demo.xml"
     svr_path:
-      - "dev/a"
-      - "prd/b"
+      - ["/wasadmin", "dev/a"]
+      - ["/root", "prd/b"]
     trans_path:
       - ["src/main/java", "WEB-INF/classes"]
       - ["src/main/resources", "WEB-INF/classes"]
