@@ -36,6 +36,18 @@ def to_posix(s: str) -> str:
     return s.replace("\\", "/")
 
 
+def banner(title: str) -> None:
+    print("=================================")
+    print(title)
+    print("---------------------------------")
+
+
+def footer(blank_line: bool = True) -> None:
+    print("=================================")
+    if blank_line:
+        print()
+
+
 def fail_exit(msg: str, code: int = 2) -> None:
     print(msg)
     sys.exit(code)
@@ -127,6 +139,7 @@ def build_repo_base_map(repositories: list[dict]) -> dict[str, dict]:
             "trans_file": r.get("trans_file", []) or [],
             "build_file": r.get("build_file"),
             "src_path": "" if r.get("src_path") is None else str(r.get("src_path")).strip(),
+            "build": bool(r.get("build", True)),
         }
     return repo_base_map
 
@@ -242,7 +255,6 @@ def classify_grouped(
 
 def ensure_empty_dir(p: Path) -> None:
     if p.exists():
-        print(f"[REMOVE] {p}")
         shutil.rmtree(p)
     p.mkdir(parents=True, exist_ok=True)
 
@@ -332,15 +344,14 @@ def format_copy_block(paths: list[Path]) -> str:
 def print_unmapped(unmapped: dict[Path, list[Path]], is_orin_log: bool, orin_map: dict[Path, list[str]]) -> None:
     if not unmapped:
         return
-    print("==================================================================")
-    print("[UNMAPPED]")
-    print("-------")
+
+    banner("[UNMAPPED]")
     for changed in sorted(unmapped.keys(), key=lambda x: str(x)):
         src_list = unmapped[changed]
         print(f"[X] {changed}")
         if is_orin_log:
             print(f"    {format_orin_block(src_list, orin_map)}")
-    print("==================================================================")
+    footer()
 
 
 def count_grouped(grouped: dict[Path, list[Path]]) -> tuple[int, int]:
@@ -396,34 +407,26 @@ def print_success_by_label(success_by_label: dict[str, list[str]]) -> None:
 
     for label in sorted(success_by_label.keys()):
         items = sorted(set(success_by_label[label]))
-        print("==================================================================")
-        print(f"[{label}]")
-        print("------------------------------------------------------------------")
+        banner(f"[{label}]")
         for p in items:
             print(p)
-        print("==================================================================")
-        print()
+        footer()
 
 
-def run_ant_build_one(ant_cmd: str, build_file: str, base_path: str) -> None:
+def run_ant_build_one(ant_cmd: str, build_file: str) -> None:
     ant = Path(str(ant_cmd)).expanduser()
     if not ant.exists():
         fail_exit(f"ant_cmd not found: {ant}")
 
     bf = Path(str(build_file)).expanduser()
     if not bf.exists():
-        print("------------------------------------------------------------------")
-        print(f"[BUILD]")
-        print("-------")
+        banner("[BUILD]")
         print(f"build_file not found: {bf}")
-        print("==================================================================")
+        footer(blank_line=False)
         sys.exit(2)
 
-    print("------------------------------------------------------------------")
-    print(f"[BUILD]")
-    print("-------")
-    print(f"Path: {base_path}")
-    print(f"Antfile: {ant}")
+    banner("[BUILD]")
+    print(f"ant_cmd : {ant}")
 
     cmd = ["cmd", "/c", str(ant), "-f", str(bf)]
 
@@ -436,7 +439,7 @@ def run_ant_build_one(ant_cmd: str, build_file: str, base_path: str) -> None:
         )
     except Exception as e:
         print(f"[BUILD-FAIL] exec error: {e}")
-        print("==================================================================")
+        footer(blank_line=False)
         sys.exit(2)
 
     if r.stdout:
@@ -444,11 +447,11 @@ def run_ant_build_one(ant_cmd: str, build_file: str, base_path: str) -> None:
 
     if r.returncode != 0:
         print(f"[BUILD-FAIL] returncode={r.returncode}")
-        print("==================================================================")
+        footer(blank_line=False)
         sys.exit(2)
 
     print("[BUILD-OK]")
-    print("------------------------------------------------------------------")
+    footer()
 
 
 def copy_worklist_files_to_repo_src(
@@ -524,33 +527,29 @@ def run_pipeline(config: dict) -> None:
 
     for repo_name, info in repo_base_map.items():
         execute: bool = info["execute"]
+        repo_build: bool = info.get("build", True)
         svr_path_pairs: list[tuple[str, str]] = info["svr_path"]
         base_path: Path = info["base"]
         repo_src_root: Path = info["root"]
         repo_src_path: str = info.get("src_path", "")
 
-        print("==================================================================")
-        print(f"[{repo_name}]")
-        print("------------------------------------------------------------------")
+        banner(f"[{repo_name}]")
 
         if not execute:
             print("execution disabled")
-            print("==================================================================")
-            print()
+            footer()
             continue
 
         targets = repo_grouped.get(repo_name, {})
         if not targets:
             print("empty")
-            print("==================================================================")
-            print()
+            footer()
             continue
 
         build_file = info.get("build_file")
         if not build_file:
             print("build_file is empty")
-            print("==================================================================")
-            print()
+            footer()
             continue
 
         repo_root = copy_root / repo_name
@@ -566,17 +565,22 @@ def run_pipeline(config: dict) -> None:
         if copied_cnt or skipped_cnt:
             sp = _clean_rel_path(repo_src_path)
             dst_base = (repo_root / sp) if sp else repo_root
-            print(f"[SOURCE] {dst_base} (copied={copied_cnt}, skipped={skipped_cnt})")
+            print(f"[WORKLIST-COPY] to: {dst_base} (copied={copied_cnt}, skipped={skipped_cnt})")
             for p in copied_files:
                 print(f"  - {p}")
 
-        run_ant_build_one(str(ant_cmd), str(build_file), str(base_path))
+        if repo_build:
+            run_ant_build_one(str(ant_cmd), str(build_file))
+        else:
+            banner("[BUILD]")
+            print("skip (repositories.build=false)")
+            footer()
 
         target_roots = normalize_copy_roots(svr_path_pairs, repo_root)
         prefix_by_label = build_prefix_by_label(svr_path_pairs)
 
-        print(f"[COPY] {format_copy_block(target_roots)}")
-        print("-------")
+        print(f"target root: {base_path}")
+        print(f"copy roots : {format_copy_block(target_roots)}")
 
         logs = copy_grouped_and_log_multi(base_path, target_roots, targets)
 
@@ -599,8 +603,7 @@ def run_pipeline(config: dict) -> None:
         total_success = add_counts(total_success, count_grouped(success_grouped))
         total_fail = add_counts(total_fail, count_grouped(fail_grouped))
 
-        print("==================================================================")
-        print()
+        footer()
 
     print_unmapped(unmapped, is_orin_log, orin_map)
     print_success_by_label(success_copied_by_label)
