@@ -14,14 +14,11 @@ def now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-# ----------------------------
-# summary_file 로 콘솔 출력 동시 기록 (덮어쓰기)
-# ----------------------------
 class Tee:
     def __init__(self, *streams):
         self.streams = streams
 
-    def write(self, msg):
+    def write(self, msg: str):
         for s in self.streams:
             s.write(msg)
             s.flush()
@@ -35,26 +32,33 @@ def _clean_rel_path(s: str) -> str:
     return str(s).strip().strip("/").strip("\\")
 
 
-def resolve_worklist_path_abs_only(raw: str) -> Path:
-    """
-    worklist 항목 경로 해석 규칙:
-    - 절대경로만 허용
-    - 상대경로면 ABORT
-    """
+def to_posix(s: str) -> str:
+    return s.replace("\\", "/")
+
+
+def fail_exit(msg: str, code: int = 2) -> None:
+    print(msg)
+    sys.exit(code)
+
+
+def resolve_worklist_path(raw: str) -> Path:
     s = raw.strip()
     p = Path(s).expanduser()
+
     if not p.is_absolute():
-        print(f"[WORKLIST-FAIL] only absolute path allowed: {raw}")
-        sys.exit(2)
+        fail_exit(f"[WORKLIST-FAIL] relative path is not allowed: {raw}")
+
+    if not p.exists():
+        fail_exit(f"[WORKLIST-FAIL] path not found: {p}")
+
     return p.resolve()
 
 
-def read_worklist_abs_only(worklist_file: str) -> tuple[list[Path], dict[Path, list[str]]]:
+def read_worklist(worklist_file: str) -> tuple[list[Path], dict[Path, list[str]]]:
     p = Path(worklist_file)
     if not p.exists():
         print(f"> {now_str()}")
-        print(f"worklist file not found: {p.resolve()}")
-        sys.exit(2)
+        fail_exit(f"worklist file not found: {p.resolve()}")
 
     items: list[Path] = []
     orin_map: dict[Path, list[str]] = {}
@@ -64,21 +68,14 @@ def read_worklist_abs_only(worklist_file: str) -> tuple[list[Path], dict[Path, l
         if not s or s.startswith("#"):
             continue
 
-        abs_path = resolve_worklist_path_abs_only(s)
+        abs_path = resolve_worklist_path(s)
         items.append(abs_path)
-        orin_map.setdefault(abs_path, []).append(s)  # 원본 문자열 보존(절대경로 문자열 그대로)
+        orin_map.setdefault(abs_path, []).append(s)
 
     return items, orin_map
 
 
 def normalize_svr_path_pairs(raw_svr_path) -> list[tuple[str, str]]:
-    """
-    svr_path 지원 형태:
-      1) ["dev/a", "prd/b"]
-      2) [("/wasadmin", "dev/a"), ("/root", "prd/b")]
-      3) [["/wasadmin", "dev/a"], ["/root", "prd/b"]]  (YAML 안전 표기)
-    return: [(prefix, path), ...]  (path는 비어있으면 제외)
-    """
     if raw_svr_path is None:
         return []
 
@@ -107,11 +104,6 @@ def normalize_svr_path_pairs(raw_svr_path) -> list[tuple[str, str]]:
 
 
 def build_repo_base_map(repositories: list[dict]) -> dict[str, dict]:
-    """
-    config.yml repositories 항목에서 repo별 설정을 정규화해서 저장
-    - dir(레거시) -> svr_path 로 호환
-    - svr_path: 내부적으로 list[tuple[prefix, path]] 로 정규화
-    """
     repo_base_map: dict[str, dict] = {}
     for r in repositories:
         name = r["name"]
@@ -129,17 +121,14 @@ def build_repo_base_map(repositories: list[dict]) -> dict[str, dict]:
             "name": name,
             "root": root,
             "base": base,
-            "svr_path": svr_path_pairs,  # [(prefix, path), ...]
+            "svr_path": svr_path_pairs,
             "execute": bool(r.get("execute", False)),
             "trans_path": r.get("trans_path", []) or [],
             "trans_file": r.get("trans_file", []) or [],
             "build_file": r.get("build_file"),
+            "src_path": "" if r.get("src_path") is None else str(r.get("src_path")).strip(),
         }
     return repo_base_map
-
-
-def to_posix(s: str) -> str:
-    return s.replace("\\", "/")
 
 
 def find_repo_name_by_root(src_abs: Path, repo_base_map: dict[str, dict]) -> Optional[str]:
@@ -253,17 +242,12 @@ def classify_grouped(
 
 def ensure_empty_dir(p: Path) -> None:
     if p.exists():
-        print(f"remove dir: {p}")
+        print(f"[REMOVE] {p}")
         shutil.rmtree(p)
     p.mkdir(parents=True, exist_ok=True)
 
 
 def normalize_copy_roots(svr_path_pairs: list[tuple[str, str]], repo_root: Path) -> list[Path]:
-    """
-    실제 복사 대상 root 리스트 생성.
-    - svr_path 비어있으면 repo_root 1개
-    - 있으면 repo_root / path
-    """
     if not svr_path_pairs:
         repo_root.mkdir(parents=True, exist_ok=True)
         return [repo_root]
@@ -283,13 +267,6 @@ def copy_grouped_and_log_multi(
     target_roots: list[Path],
     grouped: dict[Path, list[Path]],
 ) -> list[tuple[str, Path, list[Path], list[Path]]]:
-    """
-    하나의 changed 파일을 여러 target_root로 복사한다.
-    return:
-      (status, changed, copied_list, src_list)
-      - status: "O" 성공(복사된 대상 1개 이상) / "X" 실패
-      - copied_list: 실제로 복사된 경로들
-    """
     logs: list[tuple[str, Path, list[Path], list[Path]]] = []
 
     for changed, src_list in grouped.items():
@@ -355,15 +332,15 @@ def format_copy_block(paths: list[Path]) -> str:
 def print_unmapped(unmapped: dict[Path, list[Path]], is_orin_log: bool, orin_map: dict[Path, list[str]]) -> None:
     if not unmapped:
         return
-    print("=================================")
+    print("==================================================================")
     print("[UNMAPPED]")
-    print("---------------------------------")
+    print("-------")
     for changed in sorted(unmapped.keys(), key=lambda x: str(x)):
         src_list = unmapped[changed]
         print(f"[X] {changed}")
         if is_orin_log:
             print(f"    {format_orin_block(src_list, orin_map)}")
-    print("=================================")
+    print("==================================================================")
 
 
 def count_grouped(grouped: dict[Path, list[Path]]) -> tuple[int, int]:
@@ -375,10 +352,6 @@ def add_counts(a: tuple[int, int], b: tuple[int, int]) -> tuple[int, int]:
 
 
 def build_prefix_by_label(svr_path_pairs: list[tuple[str, str]]) -> dict[str, str]:
-    """
-    (prefix, "dev/a") -> label=dev 에 대해 prefix 저장
-    - label 중복 시 첫 항목 우선(설정 순서)
-    """
     out: dict[str, str] = {}
     for prefix, p in svr_path_pairs:
         p2 = _clean_rel_path(p)
@@ -423,99 +396,99 @@ def print_success_by_label(success_by_label: dict[str, list[str]]) -> None:
 
     for label in sorted(success_by_label.keys()):
         items = sorted(set(success_by_label[label]))
-        print("=================================")
+        print("==================================================================")
         print(f"[{label}]")
-        print("---------------------------------")
+        print("------------------------------------------------------------------")
         for p in items:
             print(p)
-        print("=================================\n")
+        print("==================================================================")
+        print()
 
 
-def repo_needs_build(raw_inputs: list[Path], repo_base_map: dict[str, dict]) -> dict[str, bool]:
-    """
-    worklist 경로가 repositories.root 아래에 하나라도 포함되면 build 대상(True)
-    """
-    needs: dict[str, bool] = {name: False for name in repo_base_map.keys()}
-
-    for src in raw_inputs:
-        for name, info in repo_base_map.items():
-            root: Path = info["root"]
-            try:
-                src.relative_to(root)
-                needs[name] = True
-            except Exception:
-                pass
-
-    return needs
-
-
-def run_ant_builds(ant_cmd: str, repo_base_map: dict[str, dict], needs_build: dict[str, bool]) -> None:
-    """
-    repositories 별 build_file 이 있으면 ant_cmd 로 ant build 실행
-    단, worklist 경로가 해당 repo.root 아래에 포함되는 경우(needs_build=True)만 실행
-    - 실패하면 즉시 종료
-    """
+def run_ant_build_one(ant_cmd: str, build_file: str, base_path: str) -> None:
     ant = Path(str(ant_cmd)).expanduser()
     if not ant.exists():
-        print(f"ant_cmd not found: {ant}")
+        fail_exit(f"ant_cmd not found: {ant}")
+
+    bf = Path(str(build_file)).expanduser()
+    if not bf.exists():
+        print("------------------------------------------------------------------")
+        print(f"[BUILD]")
+        print("-------")
+        print(f"build_file not found: {bf}")
+        print("==================================================================")
         sys.exit(2)
 
-    for repo_name, info in repo_base_map.items():
-        if not info.get("execute", False):
+    print("------------------------------------------------------------------")
+    print(f"[BUILD]")
+    print("-------")
+    print(f"Path: {base_path}")
+    print(f"Antfile: {ant}")
+
+    cmd = ["cmd", "/c", str(ant), "-f", str(bf)]
+
+    try:
+        r = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    except Exception as e:
+        print(f"[BUILD-FAIL] exec error: {e}")
+        print("==================================================================")
+        sys.exit(2)
+
+    if r.stdout:
+        print(r.stdout.rstrip())
+
+    if r.returncode != 0:
+        print(f"[BUILD-FAIL] returncode={r.returncode}")
+        print("==================================================================")
+        sys.exit(2)
+
+    print("[BUILD-OK]")
+    print("------------------------------------------------------------------")
+
+
+def copy_worklist_files_to_repo_src(
+    repo_src_root: Path,
+    repo_out_root: Path,
+    src_path: str,
+    worklist_inputs: list[Path],
+) -> tuple[int, int, list[Path]]:
+    sp = _clean_rel_path(src_path)
+    dest_base = repo_out_root / sp if sp else repo_out_root
+
+    copied = 0
+    skipped = 0
+    copied_files: list[Path] = []
+
+    seen: set[Path] = set()
+    for src_abs in worklist_inputs:
+        if src_abs in seen:
             continue
-
-        build_file = info.get("build_file")
-        if not build_file:
-            continue
-
-        if not needs_build.get(repo_name, False):
-            print("=================================")
-            print(f"[BUILD] {repo_name}")
-            print("---------------------------------")
-            print("SKIP (no worklist paths under this repositories.root)")
-            print("=================================\n")
-            continue
-
-        bf = Path(str(build_file)).expanduser()
-        if not bf.exists():
-            print("=================================")
-            print(f"[BUILD] {repo_name}")
-            print("---------------------------------")
-            print(f"build_file not found: {bf}")
-            print("=================================")
-            sys.exit(2)
-
-        print("=================================")
-        print(f"[BUILD] {repo_name}")
-        print("---------------------------------")
-        print(f"ant_cmd   : {ant}")
-        print(f"build_file: {bf}")
-        print("---------------------------------")
-
-        cmd = ["cmd", "/c", str(ant), "-f", str(bf)]
+        seen.add(src_abs)
 
         try:
-            r = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-        except Exception as e:
-            print(f"[BUILD-FAIL] exec error: {e}")
-            print("=================================")
-            sys.exit(2)
+            rel = src_abs.relative_to(repo_src_root)
+        except Exception:
+            continue
 
-        if r.stdout:
-            print(r.stdout.rstrip())
+        if not src_abs.exists() or not src_abs.is_file():
+            skipped += 1
+            continue
 
-        if r.returncode != 0:
-            print(f"[BUILD-FAIL] returncode={r.returncode}")
-            print("=================================")
-            sys.exit(2)
+        dst = dest_base / rel
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_abs, dst)
+            copied += 1
+            copied_files.append(dst)
+        except Exception:
+            skipped += 1
 
-        print("[BUILD-OK]")
-        print("=================================\n")
+    return copied, skipped, copied_files
 
 
 def run_pipeline(config: dict) -> None:
@@ -524,49 +497,21 @@ def run_pipeline(config: dict) -> None:
     copy_root = Path(config["copy_dir"])
     worklist_file = config.get("worklist_file")
     if not worklist_file:
-        print("worklist_file is required")
-        sys.exit(2)
+        fail_exit("worklist_file is required")
 
-    is_orin_log = bool(config.get("is_orin_log", True))
+    ant_cmd = config.get("ant_cmd")
+    if not ant_cmd:
+        fail_exit("ant_cmd is required")
 
     repositories = config.get("repositories", []) or []
     if not repositories:
-        print("repositories is empty")
-        sys.exit(2)
+        fail_exit("repositories is empty")
+
+    is_orin_log = bool(config.get("is_orin_log", True))
 
     repo_base_map = build_repo_base_map(repositories)
 
-    # ----------------------------
-    # worklist 먼저 읽기 (절대경로만 허용)
-    # ----------------------------
-    raw_inputs, orin_map = read_worklist_abs_only(worklist_file)
-
-    # ----------------------------
-    # repositories.root 포함 여부 기반으로 빌드 대상 결정
-    # ----------------------------
-    needs_build = repo_needs_build(raw_inputs, repo_base_map)
-
-    # ----------------------------
-    # Ant build 실행 (build_file 있는 repo 중 needs_build=True만)
-    # ----------------------------
-    ant_cmd = config.get("ant_cmd")
-    will_build_any = any(
-        bool(info.get("build_file"))
-        and bool(info.get("execute", False))
-        and needs_build.get(name, False)
-        for name, info in repo_base_map.items()
-    )
-
-    if will_build_any and not ant_cmd:
-        print("ant_cmd is required because repositories has build_file to run (matched by worklist)")
-        sys.exit(2)
-
-    if will_build_any:
-        run_ant_builds(str(ant_cmd), repo_base_map, needs_build)
-
-    # ----------------------------
-    # 이후 기존 기능 그대로 실행
-    # ----------------------------
+    raw_inputs, orin_map = read_worklist(worklist_file)
     grouped_all = apply_transforms_grouped(raw_inputs, repo_base_map)
     repo_grouped, unmapped = classify_grouped(grouped_all, repo_base_map)
 
@@ -581,31 +526,57 @@ def run_pipeline(config: dict) -> None:
         execute: bool = info["execute"]
         svr_path_pairs: list[tuple[str, str]] = info["svr_path"]
         base_path: Path = info["base"]
+        repo_src_root: Path = info["root"]
+        repo_src_path: str = info.get("src_path", "")
 
-        print("=================================")
+        print("==================================================================")
         print(f"[{repo_name}]")
-        print("---------------------------------")
+        print("------------------------------------------------------------------")
 
         if not execute:
             print("execution disabled")
-            print("=================================\n")
+            print("==================================================================")
+            print()
             continue
 
         targets = repo_grouped.get(repo_name, {})
         if not targets:
             print("empty")
-            print("=================================\n")
+            print("==================================================================")
+            print()
+            continue
+
+        build_file = info.get("build_file")
+        if not build_file:
+            print("build_file is empty")
+            print("==================================================================")
+            print()
             continue
 
         repo_root = copy_root / repo_name
         ensure_empty_dir(repo_root)
 
+        copied_cnt, skipped_cnt, copied_files = copy_worklist_files_to_repo_src(
+            repo_src_root=repo_src_root,
+            repo_out_root=repo_root,
+            src_path=repo_src_path,
+            worklist_inputs=raw_inputs,
+        )
+
+        if copied_cnt or skipped_cnt:
+            sp = _clean_rel_path(repo_src_path)
+            dst_base = (repo_root / sp) if sp else repo_root
+            print(f"[SOURCE] {dst_base} (copied={copied_cnt}, skipped={skipped_cnt})")
+            for p in copied_files:
+                print(f"  - {p}")
+
+        run_ant_build_one(str(ant_cmd), str(build_file), str(base_path))
+
         target_roots = normalize_copy_roots(svr_path_pairs, repo_root)
         prefix_by_label = build_prefix_by_label(svr_path_pairs)
 
-        print(f"target root: {base_path}")
-        print(f"copy roots: {format_copy_block(target_roots)}")
-        print("----------")
+        print(f"[COPY] {format_copy_block(target_roots)}")
+        print("-------")
 
         logs = copy_grouped_and_log_multi(base_path, target_roots, targets)
 
@@ -618,7 +589,6 @@ def run_pipeline(config: dict) -> None:
                 if is_orin_log:
                     print(f"    {format_orin_block(src_list, orin_map)}")
                 success_grouped[changed] = src_list
-
                 add_success_copied_by_label(success_copied_by_label, repo_root, copied_list, prefix_by_label)
             else:
                 print(f"[X] {changed}")
@@ -629,11 +599,10 @@ def run_pipeline(config: dict) -> None:
         total_success = add_counts(total_success, count_grouped(success_grouped))
         total_fail = add_counts(total_fail, count_grouped(fail_grouped))
 
-        print("=================================\n")
+        print("==================================================================")
+        print()
 
     print_unmapped(unmapped, is_orin_log, orin_map)
-
-    print()
     print_success_by_label(success_copied_by_label)
 
     print(
@@ -644,9 +613,9 @@ def run_pipeline(config: dict) -> None:
     )
 
 
-def main():
+def main() -> None:
     with open(CONFIG_FILE, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
 
     summary_file = config.get("summary_file")
     work_summary_file = config.get("work_summary_file")
@@ -661,7 +630,7 @@ def main():
             if fp:
                 p = Path(fp)
                 p.parent.mkdir(parents=True, exist_ok=True)
-                fobj = open(p, "w", encoding="utf-8")  # 덮어쓰기
+                fobj = open(p, "w", encoding="utf-8")
                 tee_files.append(fobj)
                 streams.append(fobj)
 

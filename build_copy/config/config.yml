@@ -13,6 +13,7 @@ repositories:
     root: "D:/workspace/java/SpringMVC-MyBatis-Demo"
     path: "build"
     build_file: "./files/SpringMVC-MyBatis-Demo.xml"
+    src_path: "source"
     svr_path:
       - ["/wasadmin", "dev/a"]
       - ["/root", "prd/b"]
