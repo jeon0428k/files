@@ -35,29 +35,21 @@ def _clean_rel_path(s: str) -> str:
     return str(s).strip().strip("/").strip("\\")
 
 
-def resolve_worklist_path(raw: str, repo_roots: list[Path]) -> Path:
+def resolve_worklist_path_abs_only(raw: str) -> Path:
     """
     worklist 항목 경로 해석 규칙:
-    - 절대경로: 그대로 resolve
-    - 상대경로: 각 repositories.root 와 결합(root/rel) 해서 존재하는 첫 경로를 사용(설정 순서)
-    - 어떤 repo에서도 못 찾으면: ABORT
+    - 절대경로만 허용
+    - 상대경로면 ABORT
     """
     s = raw.strip()
     p = Path(s).expanduser()
-
-    if p.is_absolute():
-        return p.resolve()
-
-    for root in repo_roots:
-        cand = root / p
-        if cand.exists():
-            return cand.resolve()
-
-    print(f"[WORKLIST-FAIL] relative path not found in any repositories.root: {raw}")
-    sys.exit(2)
+    if not p.is_absolute():
+        print(f"[WORKLIST-FAIL] only absolute path allowed: {raw}")
+        sys.exit(2)
+    return p.resolve()
 
 
-def read_worklist(worklist_file: str, repo_roots: list[Path]) -> tuple[list[Path], dict[Path, list[str]]]:
+def read_worklist_abs_only(worklist_file: str) -> tuple[list[Path], dict[Path, list[str]]]:
     p = Path(worklist_file)
     if not p.exists():
         print(f"> {now_str()}")
@@ -72,9 +64,9 @@ def read_worklist(worklist_file: str, repo_roots: list[Path]) -> tuple[list[Path
         if not s or s.startswith("#"):
             continue
 
-        abs_path = resolve_worklist_path(s, repo_roots)
+        abs_path = resolve_worklist_path_abs_only(s)
         items.append(abs_path)
-        orin_map.setdefault(abs_path, []).append(s)  # 원본 문자열 보존(상대/절대 그대로)
+        orin_map.setdefault(abs_path, []).append(s)  # 원본 문자열 보존(절대경로 문자열 그대로)
 
     return items, orin_map
 
@@ -126,7 +118,6 @@ def build_repo_base_map(repositories: list[dict]) -> dict[str, dict]:
         root = Path(r["root"]).resolve()
         base = (root / r["path"]).resolve()
 
-        # legacy dir 호환
         raw_svr_path = r.get("svr_path", None)
         if raw_svr_path is None:
             legacy_dir = r.get("dir", "")
@@ -440,14 +431,30 @@ def print_success_by_label(success_by_label: dict[str, list[str]]) -> None:
         print("=================================\n")
 
 
-def run_ant_builds(ant_cmd: str, repo_base_map: dict[str, dict]) -> None:
+def repo_needs_build(raw_inputs: list[Path], repo_base_map: dict[str, dict]) -> dict[str, bool]:
+    """
+    worklist 경로가 repositories.root 아래에 하나라도 포함되면 build 대상(True)
+    """
+    needs: dict[str, bool] = {name: False for name in repo_base_map.keys()}
+
+    for src in raw_inputs:
+        for name, info in repo_base_map.items():
+            root: Path = info["root"]
+            try:
+                src.relative_to(root)
+                needs[name] = True
+            except Exception:
+                pass
+
+    return needs
+
+
+def run_ant_builds(ant_cmd: str, repo_base_map: dict[str, dict], needs_build: dict[str, bool]) -> None:
     """
     repositories 별 build_file 이 있으면 ant_cmd 로 ant build 실행
+    단, worklist 경로가 해당 repo.root 아래에 포함되는 경우(needs_build=True)만 실행
     - 실패하면 즉시 종료
     """
-    if not ant_cmd:
-        return
-
     ant = Path(str(ant_cmd)).expanduser()
     if not ant.exists():
         print(f"ant_cmd not found: {ant}")
@@ -459,6 +466,14 @@ def run_ant_builds(ant_cmd: str, repo_base_map: dict[str, dict]) -> None:
 
         build_file = info.get("build_file")
         if not build_file:
+            continue
+
+        if not needs_build.get(repo_name, False):
+            print("=================================")
+            print(f"[BUILD] {repo_name}")
+            print("---------------------------------")
+            print("SKIP (no worklist paths under this repositories.root)")
+            print("=================================\n")
             continue
 
         bf = Path(str(build_file)).expanduser()
@@ -520,28 +535,38 @@ def run_pipeline(config: dict) -> None:
         sys.exit(2)
 
     repo_base_map = build_repo_base_map(repositories)
-    repo_roots = [info["root"] for info in repo_base_map.values()]
 
     # ----------------------------
-    # Ant build 먼저 실행
+    # worklist 먼저 읽기 (절대경로만 허용)
+    # ----------------------------
+    raw_inputs, orin_map = read_worklist_abs_only(worklist_file)
+
+    # ----------------------------
+    # repositories.root 포함 여부 기반으로 빌드 대상 결정
+    # ----------------------------
+    needs_build = repo_needs_build(raw_inputs, repo_base_map)
+
+    # ----------------------------
+    # Ant build 실행 (build_file 있는 repo 중 needs_build=True만)
     # ----------------------------
     ant_cmd = config.get("ant_cmd")
-    has_build = any(
-        bool(info.get("build_file")) and bool(info.get("execute", False))
-        for info in repo_base_map.values()
+    will_build_any = any(
+        bool(info.get("build_file"))
+        and bool(info.get("execute", False))
+        and needs_build.get(name, False)
+        for name, info in repo_base_map.items()
     )
 
-    if has_build and not ant_cmd:
-        print("ant_cmd is required because repositories has build_file")
+    if will_build_any and not ant_cmd:
+        print("ant_cmd is required because repositories has build_file to run (matched by worklist)")
         sys.exit(2)
 
-    if has_build:
-        run_ant_builds(str(ant_cmd), repo_base_map)
+    if will_build_any:
+        run_ant_builds(str(ant_cmd), repo_base_map, needs_build)
 
     # ----------------------------
     # 이후 기존 기능 그대로 실행
     # ----------------------------
-    raw_inputs, orin_map = read_worklist(worklist_file, repo_roots)
     grouped_all = apply_transforms_grouped(raw_inputs, repo_base_map)
     repo_grouped, unmapped = classify_grouped(grouped_all, repo_base_map)
 
