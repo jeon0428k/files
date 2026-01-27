@@ -10,6 +10,7 @@ repositories:
   - name: "SpringMVC-MyBatis-Demo"
     execute: true
 #    execute: false
+    build: true
     root: "D:/workspace/java/SpringMVC-MyBatis-Demo"
     path: "build"
     build_file: "./files/SpringMVC-MyBatis-Demo.xml"
