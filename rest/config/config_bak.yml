@@ -1,0 +1,178 @@
+rest:
+  # =========================================
+  # 공통 기본 설정
+  # =========================================
+  base:
+    timeout: 10
+
+  # =========================================
+  # 도메인별 설정
+  # =========================================
+  domains:
+
+    # -----------------------------------------
+    # LOCAL DOMAIN
+    # -----------------------------------------
+    local:
+      domain: http://local.test.com:8080
+      timeout: 3
+
+      apis:
+
+        # ===============================
+        # GET (path param)
+        # ===============================
+        batch_query:
+          method: GET
+          path: /batch/rest/{jobName}
+          headers:
+            Content-Type: application/json
+          body:
+            type: none
+
+        # ===============================
+        # POST JSON (inline value)
+        # ===============================
+        batch_save:
+          method: POST
+          path: /batch/rest/save
+          headers:
+            Content-Type: application/json
+          body:
+            type: json
+            value:
+              jobName: "{jobName}"
+              param1: "{param1}"
+              param2: "{param2}"
+              param3: "{param3}"
+              params:
+                name: "{name}"
+
+        # ===============================
+        # PUT JSON (file 기반)
+        # ===============================
+        batch_patch_from_file:
+          method: PUT
+          path: /batch/rest/patch
+          headers:
+            Content-Type: application/json
+          body:
+            type: json
+            file_path: ./data/batch_patch.json
+
+        # ===============================
+        # POST TEXT (inline)
+        # ===============================
+        send_text:
+          method: POST
+          path: /text/send
+          headers:
+            Content-Type: text/plain
+          body:
+            type: text
+            value: "{message}"
+
+        # ===============================
+        # POST TEXT (file 기반)
+        # ===============================
+        send_text_from_file:
+          method: POST
+          path: /text/send
+          headers:
+            Content-Type: text/plain
+          body:
+            type: text
+            file_path: ./data/message.txt
+
+    # -----------------------------------------
+    # EXTERNAL DOMAIN
+    # -----------------------------------------
+    external:
+      domain: https://api.external.com
+      timeout: 20
+
+      apis:
+
+        # ===============================
+        # POST JSON + Authorization
+        # ===============================
+        save_data:
+          method: POST
+          path: /v1/data/save
+          timeout: 5
+          headers:
+            Content-Type: application/json
+            Authorization: "Bearer {token}"
+          body:
+            type: json
+            value:
+              id: "{id}"
+              name: "{name}"
+
+        # ===============================
+        # POST JSON (file 기반 + auth)
+        # ===============================
+        save_data_from_file:
+          method: POST
+          path: /v1/data/save
+          headers:
+            Content-Type: application/json
+            Authorization: "Bearer {token}"
+          body:
+            type: json
+            file_path: ./data/save_request.json
+
+        # ===============================
+        # MULTIPART - 단일 파일
+        # ===============================
+        upload_single_file:
+          method: POST
+          path: /v1/file/upload
+          headers:
+            Authorization: "Bearer {token}"
+          body:
+            type: multipart
+            files:
+              - param: file
+                path: "{filePath}"
+
+        # ===============================
+        # MULTIPART - 여러 파일 + data
+        # ===============================
+        upload_multi_file:
+          method: POST
+          path: /v1/file/upload/multi
+          headers:
+            Authorization: "Bearer {token}"
+          body:
+            type: multipart
+            files:
+              - param: file1
+                path: "{filePath1}"
+              - param: file2
+                path: "{filePath2}"
+            data:
+              userId: "{userId}"
+              description: "{description}"
+
+        # ===============================
+        # GET + Query Param
+        # ===============================
+        search_data:
+          method: GET
+          path: /v1/data/search
+          headers:
+            Content-Type: application/json
+          body:
+            type: none
+
+        # ===============================
+        # DELETE
+        # ===============================
+        delete_data:
+          method: DELETE
+          path: /v1/data/{id}
+          headers:
+            Authorization: "Bearer {token}"
+          body:
+            type: none

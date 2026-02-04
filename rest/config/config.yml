@@ -1,0 +1,78 @@
+rest:
+  # =========================================
+  # 공통 기본 설정
+  # =========================================
+  base:
+    timeout: 60
+    is_log: false
+    log_pretty_head: true
+    log_pretty_req: true
+    log_pretty_res: true
+
+  # =========================================
+  # 도메인별 설정
+  # =========================================
+  domains:
+
+    # -----------------------------------------
+    # LOCAL DOMAIN
+    # -----------------------------------------
+    local:
+      domain: http://localhost:8099
+      timeout: 300
+
+      apis:
+        # ===============================
+        # PUT JSON (file 기반)
+        # ===============================
+        batch_patch:
+          method: PUT
+          path: /batch/rest/patch
+          headers:
+            Content-Type: application/json
+          body:
+            type: json
+            file_path: ./data/batch_patch.json
+
+        # ===============================
+        # POST JSON (inline value)
+        # ===============================
+        batch_save:
+          method: POST
+          path: /batch/rest/save
+          headers:
+            Content-Type: application/json
+            Ac-Type: application/json
+          body:
+            type: json
+            value: "{result}"
+#            type: text
+#            value: "{result}"
+
+        # ===============================
+        # GET (path param)
+        # ===============================
+        batch_query:
+          method: GET
+          path: /batch/rest/query/{jobName}
+          headers:
+            Content-Type: application/json
+          body:
+            type: none
+
+
+        # ===============================
+        # MULTIPART - 여러 파일 + data
+        # ===============================
+        upload_multi_file:
+          method: POST
+          path: /batch/rest/upload/files
+          body:
+            type: multipart
+            files:
+              - param: "files"
+                path: "{filePath1}"
+              - param: "files"
+                path: "{filePath2}"
+            data:
+              jobName: "{jobName}"

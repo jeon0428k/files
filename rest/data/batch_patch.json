@@ -1,0 +1,7 @@
+{
+  "jobName": "{jobName}",
+  "location": "{location}",
+  "params": {
+    "server": "{server}"
+  }
+}
