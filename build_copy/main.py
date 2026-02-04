@@ -186,8 +186,17 @@ def apply_transform_one(src_abs: Path, repo_base_map: dict[str, dict]) -> tuple[
         sp = to_posix(src_prefix).strip("/")
         dp = to_posix(dst_prefix).strip("/")
 
-        if sp and (new_rel == sp or new_rel.startswith(sp + "/")):
-            rest = new_rel[len(sp):]
+        # 와일드카드 매칭 지원
+        if sp and fnmatch.fnmatch(new_rel, sp) or fnmatch.fnmatch(new_rel, sp + "/*"):
+            # src_prefix 이후 경로 계산
+            if "*" in sp:
+                # 와일드카드 패턴일 경우, 마지막 디렉토리 기준으로 처리
+                sp_base = sp.split("*")[-1].lstrip("/")
+                idx = new_rel.find(sp_base)
+                rest = new_rel[idx + len(sp_base):] if idx >= 0 else ""
+            else:
+                rest = new_rel[len(sp):]
+
             if rest.startswith("/"):
                 rest = rest[1:]
 
@@ -197,7 +206,6 @@ def apply_transform_one(src_abs: Path, repo_base_map: dict[str, dict]) -> tuple[
                 new_rel = rest
 
             trans_path_matched = True
-            break
 
     for src_ext, dst_ext in trans_file:
         if new_rel.endswith(src_ext):
