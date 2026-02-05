@@ -1,6 +1,8 @@
 import pandas as pd
 import yaml
 import os
+import sys
+from datetime import datetime
 
 # -------------------------------
 # 설정 파일 읽기
@@ -18,6 +20,42 @@ def write_log(log_path, text):
         f.write(text + "\n")
 
 # -------------------------------
+# 텍스트 파일 기록 함수 (매 실행마다 새로 생성)
+# -------------------------------
+def write_text_file(file_path, lines):
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + ("\n" if lines else ""))
+
+# -------------------------------
+# 공백(whitespace) 제거
+# -------------------------------
+def remove_all_spaces(value):
+    if value is None:
+        return ""
+    # 모든 공백류(스페이스/탭/개행 포함) 제거
+    return "".join(str(value).split())
+
+# -------------------------------
+# 실행 인자 날짜 파싱
+#   - YYYYMMDD -> YYYY-MM-DD
+#   - MMDD     -> {현재년도}-MM-DD
+# -------------------------------
+def parse_work_date(arg_date: str):
+    arg_date = str(arg_date).strip()
+
+    # YYYYMMDD
+    if len(arg_date) == 8 and arg_date.isdigit():
+        return f"{arg_date[:4]}-{arg_date[4:6]}-{arg_date[6:8]}"
+
+    # MMDD → 현재년도-MM-DD
+    if len(arg_date) == 4 and arg_date.isdigit():
+        year = datetime.now().year
+        return f"{year}-{arg_date[:2]}-{arg_date[2:4]}"
+
+    raise ValueError(f"Invalid date argument: {arg_date}")
+
+# -------------------------------
 # 시스템 문자열이 리스트 중 하나라도 포함되는지 검사
 # -------------------------------
 def matches_any(system_value: str, key_list: list):
@@ -33,11 +71,24 @@ def matches_any(system_value: str, key_list: list):
 def main():
     config = load_config()
 
-    work_date = config["paths"]["work_date"]
+    # ---------------------------------------------------------
+    # work_date 결정
+    #   - argument 있으면 argument 사용
+    #   - 없으면 config 값 사용
+    # ---------------------------------------------------------
+    if len(sys.argv) > 1:
+        work_date = parse_work_date(sys.argv[1])
+    else:
+        work_date = config["paths"]["work_date"]
+
     work_systems = config["paths"]["work_systems"]
     work_sources = config["paths"]["work_sources"]
     work_file = config["paths"]["work_file"]
     result_log = config["paths"]["work_result_file"]
+
+    # 옵션: 소스 목록을 worklist_file에 저장할지 여부
+    is_write_worklist = bool(config.get("is_write_worklist", False))
+    worklist_file_path = config["paths"]["worklist_file"]
 
     # → N/A 값이 NaN 으로 변환되지 않고 그대로 문자열 유지됨
     df = pd.read_excel(work_file, sheet_name="sheet1", keep_default_na=False)
@@ -93,14 +144,22 @@ def main():
         append("")  # 줄바꿈
 
     # ---------------------------------------------------------
-    # 3) 소스 목록 출력
+    # 3) 소스 목록 출력 (+ 공백 제거) + (옵션 시 파일 저장)
     # ---------------------------------------------------------
     append("■ 소스 목록")
 
+    source_lines = []
     for _, row in filtered.iterrows():
         src = row.get("소스", "")
         if src:
-            append(src)
+            cleaned = remove_all_spaces(src)  # 공백 제거
+            if cleaned:
+                append(cleaned)               # 출력도 공백 없이
+                source_lines.append(cleaned)  # 파일 저장용
+
+    # 옵션이 true면 worklist_file에 저장 (덮어쓰기)
+    if is_write_worklist:
+        write_text_file(worklist_file_path, source_lines)
 
     # ---------------------------------------------------------
     # 결과 출력 + 파일 저장 (덮어쓰기)

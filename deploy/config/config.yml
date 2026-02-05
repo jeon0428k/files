@@ -6,6 +6,10 @@ is_single: false
 # false → 기본 방식인 repository.copy_list 사용
 is_worklist: true
 
+# true  → 소스 목록을 paths.worklist_file 에 저장
+# false → 저장하지 않음
+is_write_worklist: true
+
 # --------------------------------------------------------------------
 # GitHub 설정
 # --------------------------------------------------------------------
