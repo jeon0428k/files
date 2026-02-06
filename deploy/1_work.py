@@ -34,7 +34,7 @@ def remove_all_spaces(value):
     if value is None:
         return ""
     # 모든 공백류(스페이스/탭/개행 포함) 제거
-    return "".join(str(value).split())
+    return "\n".join(str(value).split())
 
 # -------------------------------
 # 실행 인자 날짜 파싱
