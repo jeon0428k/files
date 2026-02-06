@@ -85,6 +85,9 @@ def set_by_dot_path_str(
     return set_by_dot_path(data, dot_path, value, create=create)
 
 
+_MISSING = object()
+
+
 def get_by_dot_path(
     data: dict,
     dot_path: str,
