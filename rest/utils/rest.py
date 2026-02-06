@@ -29,15 +29,30 @@ class AsyncRestUtil:
     # ==================================================
     # PUBLIC
     # ==================================================
-    async def call_all(self, requests_info: List[Dict[str, Any]]):
+    async def call_all(self, domain_type: str, requests_info: List[Dict[str, Any]]):
+        """
+        호출 형태 (domain_type 필수):
+          await rest.call_all("local", [ { ... }, ... ])
+        """
+        if not domain_type or not isinstance(domain_type, str):
+            raise TypeError("call_all expects domain_type: str as first argument")
+
         async with aiohttp.ClientSession() as session:
-            tasks = [self._call_one(session, info) for info in requests_info]
+            tasks = [
+                self._call_one(session, domain_type, info)
+                for info in requests_info
+            ]
             return await asyncio.gather(*tasks, return_exceptions=False)
 
     # ==================================================
     # INTERNAL
     # ==================================================
-    async def _call_one(self, session: aiohttp.ClientSession, info: Dict[str, Any]):
+    async def _call_one(
+        self,
+        session: aiohttp.ClientSession,
+        domain_type: str,
+        info: Dict[str, Any],
+    ):
         self._req_seq += 1
         req_id = f"REQ-{self._req_seq:04d}"
         api_name = info["api_name"]
@@ -46,12 +61,22 @@ class AsyncRestUtil:
         api = domain["apis"][api_name]
 
         timeout = (
-                api.get("timeout")
-                or domain.get("timeout")
-                or self.base_timeout
+            api.get("timeout")
+            or domain.get("timeout")
+            or self.base_timeout
         )
 
-        url = domain["domain"] + self._replace(
+        # domain_type 필수 + domain_{domain_type} 반드시 존재
+        domain_key = f"domain_{domain_type}"
+        if domain_key not in domain:
+            raise KeyError(
+                f"[CONFIG ERROR] domain_type='{domain_type}' "
+                f"but '{domain_key}' not found in domain '{info['domain_name']}'"
+            )
+
+        base_domain = domain[domain_key]
+
+        url = base_domain + self._replace(
             api["path"], info.get("path_params")
         )
 
@@ -76,18 +101,28 @@ class AsyncRestUtil:
                 result_value = data
             elif body_type == "multipart":
                 data = self._build_multipart(body_def, body_params)
-                result_value = body_params  # multipart는 보낸 파라미터 정보 반환
+                result_value = body_params
 
-            self._log_request(req_id, api_name, api["method"], url, headers, json_data, data, body_def, body_params)
+            self._log_request(
+                req_id,
+                api_name,
+                api["method"],
+                url,
+                headers,
+                json_data,
+                data,
+                body_def,
+                body_params,
+            )
 
             async with session.request(
-                    method=api["method"],
-                    url=url,
-                    headers=headers if body_type != "multipart" else None,
-                    params=info.get("query_params"),
-                    json=json_data,
-                    data=data,
-                    timeout=aiohttp.ClientTimeout(total=timeout),
+                method=api["method"],
+                url=url,
+                headers=headers if body_type != "multipart" else None,
+                params=info.get("query_params"),
+                json=json_data,
+                data=data,
+                timeout=aiohttp.ClientTimeout(total=timeout),
             ) as resp:
                 text = await resp.text()
                 self._log_response(req_id, api_name, resp.status, text)
@@ -103,7 +138,7 @@ class AsyncRestUtil:
                     "bind_params": body_params,
                     "response_status": resp.status,
                     "response_body": text,
-                    "params": result_value
+                    "params": result_value,
                 }
 
         except Exception as e:
@@ -114,29 +149,23 @@ class AsyncRestUtil:
             return {
                 "req_id": req_id,
                 "api_name": api_name,
-                "error": str(e)
+                "error": str(e),
             }
 
     # ==================================================
     # BODY HANDLER
     # ==================================================
     def _handle_json(self, cfg, params):
-        # 파일 기반 JSON 처리
         if "file_path" in cfg:
             raw = self._read_file(cfg["file_path"])
             data = json.loads(raw)
             return self._replace_obj(data, params)
 
-        # inline value 처리
         value = cfg.get("value")
         if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
-            key = value[1:-1]  # "{result}" -> "result"
-            if key in params:
-                return params[key]  # list/dict이면 그대로 반환
-            else:
-                return value
-        else:
-            return self._replace_obj(value, params)
+            key = value[1:-1]
+            return params.get(key, value)
+        return self._replace_obj(value, params)
 
     def _handle_text(self, cfg, params):
         if "file_path" in cfg:
@@ -205,7 +234,18 @@ class AsyncRestUtil:
     def _pretty(self, obj):
         return json.dumps(obj, ensure_ascii=False, indent=2)
 
-    def _log_request(self, req_id, api_name, method, url, headers, json_data, data, body_def=None, body_params=None):
+    def _log_request(
+        self,
+        req_id,
+        api_name,
+        method,
+        url,
+        headers,
+        json_data,
+        data,
+        body_def=None,
+        body_params=None,
+    ):
         if not self.is_log:
             return
         print(f"\n===== REQUEST [{req_id}] =====")
@@ -213,10 +253,7 @@ class AsyncRestUtil:
         print(f"{method} {url}")
         if headers:
             print("Headers:")
-            if self.log_pretty_head:
-                print(self._pretty(headers))
-            else:
-                print(headers)
+            print(self._pretty(headers) if self.log_pretty_head else headers)
         print("-----")
         if json_data is not None:
             print(self._pretty(json_data) if self.log_pretty_req else json_data)
@@ -226,10 +263,8 @@ class AsyncRestUtil:
             print("MULTIPART: files + data")
             for f in body_def.get("files", []):
                 key = f["path"].strip("{}")
-                file_path = body_params[key]
-                print(f"  File Param: {f['param']}, Filename: {Path(file_path).name}")
-            data_fields = self._replace_obj(body_def.get("data", {}), body_params)
-            for k, v in data_fields.items():
+                print(f"  File Param: {f['param']}, Filename: {Path(body_params[key]).name}")
+            for k, v in self._replace_obj(body_def.get("data", {}), body_params).items():
                 print(f"  Data Param: {k}, Value: {v}")
         print("==============================")
 
