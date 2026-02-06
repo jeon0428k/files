@@ -53,6 +53,17 @@ def fail_exit(msg: str, code: int = 2) -> None:
     sys.exit(code)
 
 
+def parse_bool_arg(s: str) -> Optional[bool]:
+    if s is None:
+        return None
+    v = s.strip().lower()
+    if v in ("true", "1", "yes", "y"):
+        return True
+    if v in ("false", "0", "no", "n"):
+        return False
+    return None
+
+
 def resolve_worklist_path(raw: str) -> Path:
     s = raw.strip()
     p = Path(s).expanduser()
@@ -519,6 +530,7 @@ def run_pipeline(config: dict) -> None:
         fail_exit("repositories is empty")
 
     is_orin_log = bool(config.get("is_orin_log", True))
+    is_build = bool(config.get("is_build", True))
 
     repo_base_map = build_repo_base_map(repositories)
 
@@ -577,7 +589,7 @@ def run_pipeline(config: dict) -> None:
             for p in copied_files:
                 print(f"  - {p}")
 
-        if repo_build:
+        if is_build and repo_build:
             run_ant_build_one(str(ant_cmd), str(build_file))
         else:
             banner("[BUILD]")
@@ -627,6 +639,15 @@ def run_pipeline(config: dict) -> None:
 def main() -> None:
     with open(CONFIG_FILE, encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
+
+    cli_is_build: Optional[bool] = None
+    if len(sys.argv) >= 2:
+        cli_is_build = parse_bool_arg(sys.argv[1])
+        if cli_is_build is None:
+            fail_exit(f"invalid is_build argument: {sys.argv[1]} (use true/false)")
+
+    if cli_is_build is not None:
+        config["is_build"] = cli_is_build
 
     summary_file = config.get("summary_file")
     work_summary_file = config.get("work_summary_file")

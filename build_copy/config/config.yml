@@ -6,6 +6,8 @@ summary_file: "./logs/summary.log"
 is_orin_log: true
 #is_orin_log: false
 
+is_build: true
+
 repositories:
   - name: "SpringMVC-MyBatis-Demo"
     execute: true
