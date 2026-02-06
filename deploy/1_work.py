@@ -50,8 +50,16 @@ def parse_work_date(arg_date: str):
 
     # MMDD → 현재년도-MM-DD
     if len(arg_date) == 4 and arg_date.isdigit():
-        year = datetime.now().year
+        now = datetime.now()
+        year = now.year
         return f"{year}-{arg_date[:2]}-{arg_date[2:4]}"
+
+    # DD → 현재년도-현재월-DD
+    if len(arg_date) == 2 and arg_date.isdigit():
+        now = datetime.now()
+        year = now.year
+        month = f"{now.month:02d}"
+        return f"{year}-{month}-{arg_date}"
 
     raise ValueError(f"Invalid date argument: {arg_date}")
 
