@@ -1,28 +1,50 @@
 # util.py
 import ast
-from typing import Any, Iterable, Optional, Union, Tuple, Dict
+import json
+from typing import Any, Iterable, Union, Tuple, Dict
 
 
 _MISSING = object()
 
 
-def parse_dict_str(src: str) -> dict:
+def parse_dict(src: Union[str, dict]) -> dict:
     """
-    Python dict 리터럴 형태의 문자열을 dict로 변환한다.
-    예) "{'a': 1, 'params': {'obj': 'abc'}}" -> dict
+    str 또는 dict 입력을 dict로 변환한다.
 
-    주의:
-    - JSON 문자열이 아니라 Python 표현식 문자열일 때 사용한다.
-    - eval() 대신 ast.literal_eval 사용.
+    처리 순서:
+    1) 이미 dict면 그대로 반환
+    2) json.loads 시도 (JSON 표준)
+    3) ast.literal_eval 시도 (Python dict 리터럴)
+
+    실패 시 ValueError 발생
     """
+    if isinstance(src, dict):
+        return src
+
     if not isinstance(src, str):
-        raise ValueError("src must be a string")
+        raise ValueError("src must be str or dict")
 
-    data = ast.literal_eval(src)
-    if not isinstance(data, dict):
-        raise ValueError("parsed object is not a dict")
+    s = src.strip()
+    if not s:
+        raise ValueError("empty string")
 
-    return data
+    # 1. JSON 우선
+    try:
+        data = json.loads(s)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # 2. Python literal fallback
+    try:
+        data = ast.literal_eval(s)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    raise ValueError("failed to parse string to dict (not JSON nor Python literal)")
 
 
 def _iter_updates(
@@ -30,10 +52,7 @@ def _iter_updates(
     value: Any = _MISSING,
 ) -> Iterable[Tuple[str, Any]]:
     """
-    set_by_dot_path 입력을 표준 (path, value) iterator로 정규화.
-    - (dot_path: str, value: Any) 단일 입력
-    - dict {"a.b": 1, "c.d": 2}
-    - iterable [("a.b", 1), ("c.d", 2)]
+    set_by_dot_path 입력을 (dot_path, value) iterable로 정규화.
     """
     if isinstance(updates, str):
         if value is _MISSING:
@@ -54,17 +73,12 @@ def set_by_dot_path(
     create: bool = False,
 ) -> dict:
     """
-    dict 대상으로 dot path로 값 설정.
+    dict 대상으로 dot path("a.b.c")로 값 설정.
     여러 개 경로를 한 번에 지정 가능.
 
-    사용 예)
-      set_by_dot_path(d, "params.obj", "NEW")
-      set_by_dot_path(d, {"a.b": 1, "c.d": 2}, create=True)
-      set_by_dot_path(d, [("a.b", 1), ("c.d", 2)], create=False)
-
     create:
-      - False: 경로 중 키가 없으면 KeyError
-      - True : 경로 중 키가 없으면 dict 자동 생성
+      - False: 키 없으면 KeyError
+      - True : 키 없으면 dict 자동 생성
     """
     if not isinstance(data, dict):
         raise ValueError("root is not a dict")
@@ -111,9 +125,6 @@ def _get_one_by_dot_path(
     *,
     default: Any = _MISSING,
 ) -> Any:
-    if not dot_path or not isinstance(dot_path, str):
-        raise ValueError("dot_path must be a non-empty string")
-
     keys = dot_path.split(".")
     cur: Any = data
 
@@ -138,16 +149,12 @@ def get_by_dot_path(
     여러 개 경로를 한 번에 지정 가능.
 
     규칙:
-    - default를 전달하지 않으면: 경로 중 하나라도 없으면 KeyError
-    - default를 전달하면: 없는 경로는 default 반환
+    - default 미지정: 경로 없으면 KeyError
+    - default 지정: 경로 없으면 default 반환
 
     반환:
-    - paths가 str이면 단일 값 반환
-    - paths가 iterable이면 {path: value} dict 반환
-
-    사용 예)
-      v = get_by_dot_path(d, "params.obj")
-      m = get_by_dot_path(d, ["a.b", "c.d"], default=None)
+    - paths가 str → 단일 값
+    - paths가 iterable → {path: value} dict
     """
     if not isinstance(data, dict):
         raise ValueError("root is not a dict")
