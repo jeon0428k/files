@@ -1,43 +1,68 @@
 from dataclasses import dataclass
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, Any, Optional
 
 
 @dataclass(frozen=True)
 class ParsedArgs:
-    bools: List[bool]        # true/false 들 (순서 유지)
-    kv: Dict[str, str]       # key=value (중복 시 마지막 값)
+    values: List[str]      # 단순 값들 (순서 유지)
+    kv: Dict[str, str]     # key=value (중복 시 마지막 값)
 
 
 def parse_args(args: Sequence[str]) -> ParsedArgs:
-    bools: List[bool] = []
+    values: List[str] = []
     kv: Dict[str, str] = {}
 
     for arg in args:
         s = arg.strip()
-        sl = s.lower()
-
-        if sl == "true":
-            bools.append(True)
-            continue
-
-        if sl == "false":
-            bools.append(False)
-            continue
 
         if "=" in s:
             key, value = s.split("=", 1)
             key = key.strip()
             value = value.strip()
             if not key:
-                raise ValueError(f"Invalid key=value token: {arg}")
+                raise ValueError(f"Invalid key=value argument: {arg}")
             kv[key] = value
-            continue
+        else:
+            values.append(s)
 
-        raise ValueError(f"Invalid argument: {arg}")
-
-    return ParsedArgs(bools=bools, kv=kv)
+    return ParsedArgs(values=values, kv=kv)
 
 
-def last_bool(bools: List[bool], default: bool = True) -> bool:
-    """true/false 여러 개면 마지막 값 사용, 없으면 default"""
-    return bools[-1] if bools else default
+# -----------------------------
+# values 관련 헬퍼
+# -----------------------------
+def has_value(
+    values: List[str],
+    target: str,
+    *,
+    ignore_case: bool = True,
+    default: Optional[bool] = None,
+) -> Optional[bool]:
+    """
+    values 안에 target 이 존재하는지 여부
+    - 존재하면 True
+    - 없고 default 지정 → default
+    - 없고 default 미지정 → None
+    """
+    if not values:
+        return default
+
+    if ignore_case:
+        target = target.lower()
+        found = any(v.lower() == target for v in values)
+    else:
+        found = target in values
+
+    return True if found else default
+
+
+def get_last_value(
+    values: List[str],
+    default: Any = None,
+) -> Any:
+    """
+    단순 값 중 마지막 값
+    - 없으면 default 반환
+    - default 미지정 시 None
+    """
+    return values[-1] if values else default
