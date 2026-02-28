@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from fnmatch import fnmatch
 from collections import Counter
 from datetime import datetime
 import shutil  # ★ ADD
@@ -59,6 +60,30 @@ def analyze_copy_list(repo: dict, copy_list: list[str]):
 
 
 # -------------------------------------------------------------
+# db_list 분석
+# -------------------------------------------------------------
+def analyze_db_list(repo: dict, db_list: list[str]):
+    repo["raw_db_list"] = list(db_list)
+    repo["db_count_map"] = Counter(db_list)
+    repo["unique_db_list"] = list(repo["db_count_map"].keys())
+
+
+# -------------------------------------------------------------
+# 패턴 매칭 (db_file_paths 용)
+# - FileManager의 exclude/glob과 동일하게 fnmatch 사용
+# -------------------------------------------------------------
+def match_any_pattern(path: str, patterns: list[str]) -> bool:
+    if not path or not patterns:
+        return False
+    p = normalize_path(path).replace("\\", "/")
+    for pat in patterns:
+        pat_n = normalize_path(pat).replace("\\", "/")
+        if fnmatch(p, pat_n):
+            return True
+    return False
+
+
+# -------------------------------------------------------------
 # worklist 분배
 # -------------------------------------------------------------
 def distribute_worklist_to_repos(repos: list[dict], worklist: list[str]):
@@ -72,13 +97,13 @@ def distribute_worklist_to_repos(repos: list[dict], worklist: list[str]):
                     break
         analyze_copy_list(repo, matched)
 
-
-# -------------------------------------------------------------
-# config copy_list 로드
-# -------------------------------------------------------------
-def load_copy_list_from_config(repo: dict):
-    copy_list = [normalize_path(p) for p in repo.get("copy_list", []) or []]
-    analyze_copy_list(repo, copy_list)
+        db_patterns = repo.get("db_file_paths", []) or []
+        db_matched = []
+        if db_patterns:
+            for line in worklist:
+                if match_any_pattern(line, db_patterns):
+                    db_matched.append(line)
+        analyze_db_list(repo, db_matched)
 
 
 # -------------------------------------------------------------
@@ -119,9 +144,15 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         raw_list = repo.get("raw_copy_list", [])
         count_map = repo.get("copy_count_map", {}) or {}
 
+        raw_db_list = repo.get("raw_db_list", []) or []
+        db_count_map = repo.get("db_count_map", {}) or {}
+
         exist_list = repo.get("exist_files", []) or []
         missing_list = repo.get("missing_files", []) or []
         excluded_list = repo.get("excluded_files", []) or []
+
+        db_exist_list = repo.get("db_exist_files", []) or []
+        db_missing_list = repo.get("db_missing_files", []) or []
 
         raw_count = len(raw_list)
         unique_count = len(set(raw_list))
@@ -135,7 +166,31 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         excluded_raw = sum(count_map.get(x, 0) for x in excluded_list)
         excluded_unique = len(set(excluded_list))
 
+        db_raw_count = len(raw_db_list)
+        db_unique_count = len(set(raw_db_list))
+
+        db_exist_raw = sum(db_count_map.get(x, 0) for x in db_exist_list)
+        db_exist_unique = len(set(db_exist_list))
+
+        db_missing_raw = sum(db_count_map.get(x, 0) for x in db_missing_list)
+        db_missing_unique = len(set(db_missing_list))
+
+        # summary 출력은 기존 필드(total/exists/missing/excluded)에 DB를 합산한다.
+        total_raw = raw_count + db_raw_count
+        total_unique = unique_count + db_unique_count
+
+        total_exist_raw = exist_raw + db_exist_raw
+        total_exist_unique = exist_unique + db_exist_unique
+
+        total_missing_raw = missing_raw + db_missing_raw
+        total_missing_unique = missing_unique + db_missing_unique
+
+        # excluded는 기존(copy_exclude_paths)만 해당. DB는 excluded 개념 없음.
+        total_excluded_raw = excluded_raw
+        total_excluded_unique = excluded_unique
+
         repo_items |= set(raw_list)
+        repo_items |= set(raw_db_list)
 
         if not is_target:
             continue
@@ -157,6 +212,15 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
             console_lines.append(msg)
 
         # -------------------------------
+        # DB 존재 파일
+        # -------------------------------
+        for item in sorted(set(db_exist_list)):
+            raw_cnt = db_count_map.get(item, 1)
+            msg = f"[O] (DB) {item},{raw_cnt}"
+            lines.append(msg)
+            console_lines.append(msg)
+
+        # -------------------------------
         # 제외 파일 정렬 출력
         # -------------------------------
         for item in sorted(set(excluded_list)):
@@ -174,12 +238,21 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
             lines.append(msg)
             console_lines.append(msg)
 
-        # summary line
+        # -------------------------------
+        # DB 미존재 파일
+        # -------------------------------
+        for item in sorted(set(db_missing_list)):
+            raw_cnt = db_count_map.get(item, 1)
+            msg = f"[X] (DB) {item},{raw_cnt}"
+            lines.append(msg)
+            console_lines.append(msg)
+
+        # summary line (기존 필드에 DB 합산)
         summary_line = (
-            f"total: {raw_count}({unique_count}), "
-            f"exists: {exist_raw}({exist_unique}), "
-            f"missing: {missing_raw}({missing_unique}), "
-            f"excluded: {excluded_raw}({excluded_unique})"
+            f"total: {total_raw}({total_unique}), "
+            f"exists: {total_exist_raw}({total_exist_unique}), "
+            f"missing: {total_missing_raw}({total_missing_unique}), "
+            f"excluded: {total_excluded_raw}({total_excluded_unique})"
         )
 
         lines.append(summary_line)
@@ -189,6 +262,8 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
 
         all_raw_items.extend(raw_list)
         all_unique_items |= set(raw_list)
+        all_raw_items.extend(raw_db_list)
+        all_unique_items |= set(raw_db_list)
 
     # -------------------------------
     # others 처리 영역
@@ -221,18 +296,28 @@ def write_summary(copy_dir: Path, repos: list[dict], worklist: list[str] | None)
         (repo.get("copy_count_map", {}) or {}).get(x, 0)
         for repo in repos
         for x in (repo.get("exist_files", []) or [])
+    ) + sum(
+        (repo.get("db_count_map", {}) or {}).get(x, 0)
+        for repo in repos
+        for x in (repo.get("db_exist_files", []) or [])
     )
     total_exist_unique = len(
         set(x for repo in repos for x in (repo.get("exist_files", []) or []))
+        | set(x for repo in repos for x in (repo.get("db_exist_files", []) or []))
     )
 
     total_missing_raw = sum(
         (repo.get("copy_count_map", {}) or {}).get(x, 0)
         for repo in repos
         for x in (repo.get("missing_files", []) or [])
+    ) + sum(
+        (repo.get("db_count_map", {}) or {}).get(x, 0)
+        for repo in repos
+        for x in (repo.get("db_missing_files", []) or [])
     )
     total_missing_unique = len(
         set(x for repo in repos for x in (repo.get("missing_files", []) or []))
+        | set(x for repo in repos for x in (repo.get("db_missing_files", []) or []))
     )
 
     total_excluded_raw = sum(
@@ -301,15 +386,20 @@ def main():
             repo["copy_exclude_paths"] = normalize_paths_in_list(
                 repo.get("copy_exclude_paths")
             )
+        if "db_file_paths" in repo:
+            repo["db_file_paths"] = normalize_paths_in_list(
+                repo.get("db_file_paths")
+            )
 
     # worklist 모드 처리
     if is_worklist:
         worklist = load_worklist(worklist_file)
-        distribute_worklist_to_repos(repos, worklist)
     else:
-        worklist = None
+        worklist = []
         for repo in repos:
-            load_copy_list_from_config(repo)
+            items = repo.get("copy_list", []) or []
+            worklist.extend(normalize_path(x) for x in items if str(x).strip())
+    distribute_worklist_to_repos(repos, worklist)
 
     # Manager 생성
     fm = FileManager(copy_dir, logs_dir, back_dir)

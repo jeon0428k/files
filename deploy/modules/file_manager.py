@@ -167,6 +167,29 @@ class FileManager:
         return exist_files, missing_files, excluded_files
 
     # -----------------------------------------------------
+    # DB 파일 존재 여부 체크 (repo root 기준)
+    # -----------------------------------------------------
+    def check_db_files_exist(self, repo_dir: Path, db_list: list[str]):
+        """
+        repo_dir 기준으로 db_list 내 파일의 존재 여부를 체크한다.
+
+        반환값:
+          - exist_files   : 존재 + copy 대상
+          - missing_files : 미존재
+        """
+        exist_files = []
+        missing_files = []
+
+        for rel in db_list:
+            target = (repo_dir / rel)
+            if target.exists():
+                exist_files.append(rel)
+            else:
+                missing_files.append(rel)
+
+        return exist_files, missing_files
+
+    # -----------------------------------------------------
     # 파일 복사 (중복 목적지 방지 적용)
     # -----------------------------------------------------
     def copy_files(self, repo_dir: Path, repo_name: str,
@@ -208,6 +231,32 @@ class FileManager:
 
             # 전체 로그 + 세션 로그 + 콘솔 동일 메시지
             self.dual_log(repo_name, f"Copy completed: {dest}")
+
+    # -----------------------------------------------------
+    # DB 파일 복사
+    # - {copy_dir}/db 폴더에 파일명만 복사 (경로 제외)
+    # - 목적지 중복(동일 파일명) 방지
+    # -----------------------------------------------------
+    def copy_db_files(self, repo_dir: Path, repo_name: str, db_list: list[str]):
+        db_dir = (self.copy_dir / "db").resolve()
+        db_dir.mkdir(parents=True, exist_ok=True)
+
+        copied_dest_set = set()
+
+        for rel in db_list:
+            src = (repo_dir / rel).resolve()
+            if not src.exists():
+                continue
+
+            dest = (db_dir / Path(rel).name).resolve()
+
+            key = str(dest)
+            if key in copied_dest_set:
+                continue
+            copied_dest_set.add(key)
+
+            shutil.copy2(src, dest)
+            self.dual_log(repo_name, f"Copy(DB) completed: {dest}")
 
     # -----------------------------------------------------
     # 요약 + 상세 목록 출력

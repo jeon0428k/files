@@ -29,6 +29,10 @@ class RepoProcessor:
         raw_copy_list = repo_info.get("raw_copy_list", [])
         copy_count_map = repo_info.get("copy_count_map", {})
 
+        unique_db_list = repo_info.get("unique_db_list", []) or []
+        raw_db_list = repo_info.get("raw_db_list", []) or []
+        db_count_map = repo_info.get("db_count_map", {}) or {}
+
         # repo별 copy_exclude_paths (옵션)
         copy_exclude_paths = repo_info.get("copy_exclude_paths", []) or []
 
@@ -48,6 +52,7 @@ class RepoProcessor:
                 repo_path, repo_name, git_mode, repo_branch,
                 build_file, transform_path,
                 unique_copy_list, raw_copy_list, copy_count_map,
+                unique_db_list, raw_db_list, db_count_map,
                 copy_exclude_paths,
             )
             return
@@ -103,11 +108,21 @@ class RepoProcessor:
         repo_info["missing_files"] = missing_files
         repo_info["excluded_files"] = excluded_files
 
+        # -------------------- DB File 존재 체크 (repo root 기준) --------------------
+        db_exist_files, db_missing_files = self.fm.check_db_files_exist(
+            repo_dir,
+            unique_db_list,
+        )
+
+        repo_info["db_exist_files"] = db_exist_files
+        repo_info["db_missing_files"] = db_missing_files
+
         # -------------------- Copy --------------------
         if "copy" in exec_list:
             # excluded 대상은 copy 대상에서 제외
             copy_targets = [x for x in exist_files if x not in excluded_files]
             self.fm.copy_files(build_dir, repo_name, copy_targets, transform_path)
+            self.fm.copy_db_files(repo_dir, repo_name, db_exist_files)
 
         # -------------------- Check --------------------
         if "check" in exec_list:
@@ -158,6 +173,7 @@ class RepoProcessor:
     def process_all(self, repo_info, repo_path, repo_name, git_mode, repo_branch,
                     build_file, transform_path,
                     unique_copy_list, raw_copy_list, copy_count_map,
+                    unique_db_list, raw_db_list, db_count_map,
                     copy_exclude_paths):
 
         # 세션 로그 활성화
@@ -206,10 +222,20 @@ class RepoProcessor:
         repo_info["missing_files"] = missing_files
         repo_info["excluded_files"] = excluded_files
 
+        # -------------------- DB File 존재 체크 (repo root 기준) --------------------
+        db_exist_files, db_missing_files = self.fm.check_db_files_exist(
+            repo_dir,
+            unique_db_list,
+        )
+
+        repo_info["db_exist_files"] = db_exist_files
+        repo_info["db_missing_files"] = db_missing_files
+
         # -------------------- Copy --------------------
         # excluded 대상은 copy 대상에서 제외
         copy_targets = [x for x in exist_files if x not in excluded_files]
         self.fm.copy_files(build_dir, repo_name, copy_targets, transform_path)
+        self.fm.copy_db_files(repo_dir, repo_name, db_exist_files)
 
         # -------------------- Summary 출력 --------------------
         exist_raw = sum(copy_count_map.get(x, 0) for x in exist_files)

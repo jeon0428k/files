@@ -1,14 +1,7 @@
-src/main/java/com/imjcker/jrebel/JrebelApplication.class
-src/main/resources/application.yml
-
-classes/com/springapp/mvc/controller/TestController.class
 classes/com/springapp/mvc/controller/TestController.class
 classes/com/springapp/mvc/controller/TestController.class
 classes/com/springapp/mvc/controller/TestController1.class
-classes/com/springapp/mvc/controller/TestController1.class
-
-classes/webapp/WEB-INF/web.xml
-classes/rebel.xml
+schema/aa/bb/3.sql
 classes/webapp/WEB-INF/pages/hello.jsp
 classes/webapp/WEB-INF/mvc-dispatcher-servlet.xml
 classes/webapp/WEB-INF/conf/mybatis-config.xml
@@ -18,3 +11,7 @@ classes/com/springapp/mvc/model/User.class
 classes/com/springapp/mvc/mapper/UserMapper.class
 classes/com/springapp/mvc/controller/UserController.class
 classes/com/springapp/mvc/controller/TestController.class
+classes/webapp/WEB-INF/web.xml
+classes/rebel.xml
+classes/webapp/WEB-INF/pages/hello.jsp
+sql/a/b/1.sql
