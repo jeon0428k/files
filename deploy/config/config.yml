@@ -122,7 +122,7 @@ repositories:
     db_file_paths:
       - "sql/*"
       - "schema/*"
-    db_prefix: "(eam)"
+    db_prefix: "(db1)"
   - name: "jeon0428k/jrebel-license-server.git"
     branch: "main"
     execute:
