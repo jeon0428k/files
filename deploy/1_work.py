@@ -3,6 +3,8 @@ import yaml
 import os
 import sys
 from datetime import datetime
+from fnmatch import fnmatch
+from pathlib import Path
 
 # -------------------------------
 # 설정 파일 읽기
@@ -72,6 +74,36 @@ def matches_any(system_value: str, key_list: list):
     tokens = str(system_value).split("-")
     # 토큰이 key와 완전히 일치하는 경우에만 매칭
     return any(token == key for token in tokens for key in key_list)
+
+# -------------------------------
+# 경로 정규화 (DB 패턴 매칭용)
+# -------------------------------
+def normalize_path(p: str) -> str:
+    if not p:
+        return ""
+    p = str(p).strip().replace("\\", "/")
+
+    # 선행 / 제거
+    while p.startswith("/"):
+        p = p[1:]
+
+    # 선행 gemswas/ 제거
+    if p.startswith("gemswas/"):
+        p = p[len("gemswas/"):]
+    return p
+
+# -------------------------------
+# glob 패턴 매칭
+# -------------------------------
+def match_any_pattern(path: str, patterns: list[str]) -> bool:
+    if not path or not patterns:
+        return False
+    path = normalize_path(path)
+    for pat in patterns:
+        pat_n = normalize_path(pat)
+        if fnmatch(path, pat_n):
+            return True
+    return False
 
 # -------------------------------
 # 메인 처리 함수
@@ -152,18 +184,57 @@ def main():
         append("")  # 줄바꿈
 
     # ---------------------------------------------------------
-    # 3) 소스 목록 출력 (+ 공백 제거) + (옵션 시 파일 저장)
+    # 2-1) DB 파일 경로 매칭 결과 출력
+    #    - repositories.db_file_paths 기준
+    #    - glob 패턴 매칭
+    #    - 중복 제거 + 오름차순 정렬
     # ---------------------------------------------------------
-    append("■ 소스 목록")
-
     source_lines = []
     for _, row in filtered.iterrows():
         src = row.get("소스", "")
         if src:
             cleaned = remove_all_spaces(src)  # 공백 제거
             if cleaned:
-                append(cleaned)               # 출력도 공백 없이
-                source_lines.append(cleaned)  # 파일 저장용
+                # cleaned 가 여러 줄(여러 path)로 들어올 수 있으므로 라인 단위로 분리
+                for line in cleaned.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    source_lines.append(line)
+
+    repos = config.get("repositories", []) or []
+
+    for repo in repos:
+        db_patterns = repo.get("db_file_paths", []) or []
+        db_prefix = repo.get("db_prefix", "") or ""
+
+        if not db_patterns:
+            continue
+
+        matched = []
+        for s in source_lines:
+            s_norm = normalize_path(s)
+            if match_any_pattern(s_norm, db_patterns):
+                matched.append(s_norm)
+
+        if matched:
+            unique_sorted = sorted(set(matched))
+
+            append("[DB]")
+            for path in unique_sorted:
+                name = Path(path).name
+                line = f"{db_prefix} {name} ({path})".strip()
+                append(line)
+            append("")
+
+    # ---------------------------------------------------------
+    # 3) 소스 목록 출력 (+ 공백 제거) + (옵션 시 파일 저장)
+    # ---------------------------------------------------------
+    append("■ 소스 목록")
+
+    # source_lines는 이미 라인 단위로 만들어져 있음
+    for line in source_lines:
+        append(line)
 
     # 옵션이 true면 worklist_file에 저장 (덮어쓰기)
     if is_write_worklist:
@@ -176,7 +247,6 @@ def main():
 
     print(final_output)
     write_log(result_log, final_output)
-
 
 # -------------------------------
 # 실행

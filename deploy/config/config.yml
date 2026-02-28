@@ -115,10 +115,14 @@ repositories:
       - "classes/com/springapp/mvc/controller/TestController1.class"
     copy_exclude_paths:
       - "*/WEB-INF/*.xml"
+    db_file_paths:
+      - "sql/*"
+      - "schema/*"
+    db_prefix: "(eam)"
   - name: "jeon0428k/jrebel-license-server.git"
     branch: "main"
     execute:
-#      - "stop"
+      - "stop"
       - "all"
       - "git"
       - "build"
@@ -134,3 +138,5 @@ repositories:
       - "src/main/java/com/imjcker/jrebel/JrebelApplication.java"
       - "src/main/resources/application.yml"
     copy_exclude_paths: []
+    db_file_paths: []
+    db_prefix: ""
