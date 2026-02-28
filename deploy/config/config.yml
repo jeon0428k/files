@@ -9,6 +9,7 @@ is_worklist: false
 # true  → 소스 목록을 paths.worklist_file 에 저장
 # false → 저장하지 않음
 
+#git_commits_date: None
 git_commits_date: 2026-01-19 23:58:21
 
 # --------------------------------------------------------------------

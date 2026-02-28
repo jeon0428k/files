@@ -66,6 +66,7 @@ class GitManager:
                             f"--since={self.git_commits_date}",
                             "--pretty=format:%h %an %ad %s",
                             "--date=iso",
+                            "--name-only",
                         ]
 
                         result = subprocess.run(
@@ -74,13 +75,36 @@ class GitManager:
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
                             text=True,
+                            encoding="utf-8",
+                            errors="replace",
                             check=True,
                         )
 
                         if result.stdout.strip():
-                            log(f"Commits after specified date (since: {self.git_commits_date}):")
+                            log(f"Commits after specified date (since: {self.git_commits_date})")
+
+                            prev_blank = True
+
                             for line in result.stdout.splitlines():
-                                log(f"  {line}")
+                                if not line.strip():
+                                    prev_blank = True
+                                    continue
+
+                                if prev_blank:
+                                    parts = line.split(" ")
+                                    if len(parts) >= 5:
+                                        commit_hash = parts[0]
+                                        author = parts[1]
+                                        date = parts[2]
+                                        time = parts[3]
+                                        # tz = parts[4]  # 출력에 쓰지 않으면 변수 생략 가능
+                                        message = " ".join(parts[5:]).strip()
+                                        log(f"{commit_hash} {date}_{time} {author} -> {message}")
+                                    else:
+                                        log(line)
+                                    prev_blank = False
+                                else:
+                                    log(f"  - {line}")
                         else:
                             log(f"No commits after specified date (since: {self.git_commits_date})")
 
