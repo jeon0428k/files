@@ -358,6 +358,8 @@ def main():
     is_single = config.get("is_single", False)
     is_worklist = config.get("is_worklist", False)
 
+    git_commits_date = config.get("git_commits_date")
+
     server = config["github"]["server"]
     token = config["github"]["token"]
     global_branch = config["github"]["branch"]
@@ -403,7 +405,7 @@ def main():
 
     # Manager 생성
     fm = FileManager(copy_dir, logs_dir, back_dir)
-    gm = GitManager(server, token, global_branch, fm)
+    gm = GitManager(server, token, global_branch, fm, git_commits_date=git_commits_date)
     processor = RepoProcessor(gm, fm, repo_base_dir, ant_cmd, global_branch)
 
     exec_repos = repos

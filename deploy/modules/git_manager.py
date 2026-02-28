@@ -5,11 +5,12 @@ from pathlib import Path
 
 
 class GitManager:
-    def __init__(self, server, token, global_branch, file_manager):
+    def __init__(self, server, token, global_branch, file_manager, git_commits_date=None):
         self.server = server              # GitHub 서버 주소
         self.token = token                # GitHub Personal Token
         self.global_branch = global_branch  # default branch (fallback)
         self.fm = file_manager            # FileManager 인스턴스
+        self.git_commits_date = git_commits_date
 
     # ---------------------------------------------------------
     # 인증 URL 생성 (토큰 삽입)
@@ -57,5 +58,33 @@ class GitManager:
 
                 subprocess.run(["git", "fetch", "origin"], cwd=dir_path, check=True)
                 subprocess.run(["git", "reset", "--hard", f"origin/{use_branch}"], cwd=dir_path, check=True)
+
+                if self.git_commits_date:
+                    try:
+                        cmd = [
+                            "git", "log",
+                            f"--since={self.git_commits_date}",
+                            "--pretty=format:%h %an %ad %s",
+                            "--date=iso",
+                        ]
+
+                        result = subprocess.run(
+                            cmd,
+                            cwd=dir_path,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            check=True,
+                        )
+
+                        if result.stdout.strip():
+                            log(f"Commits after specified date (since: {self.git_commits_date}):")
+                            for line in result.stdout.splitlines():
+                                log(f"  {line}")
+                        else:
+                            log(f"No commits after specified date (since: {self.git_commits_date})")
+
+                    except Exception as e:
+                        log(f"Failed to read git commits: {e}")
 
         return dir_path

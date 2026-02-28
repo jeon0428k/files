@@ -8,7 +8,8 @@ is_worklist: false
 
 # true  → 소스 목록을 paths.worklist_file 에 저장
 # false → 저장하지 않음
-is_write_worklist: true
+
+git_commits_date: 2026-01-19 23:58:21
 
 # --------------------------------------------------------------------
 # GitHub 설정
