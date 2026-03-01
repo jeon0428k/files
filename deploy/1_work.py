@@ -211,6 +211,20 @@ def main():
         if not db_patterns:
             continue
 
+        path_sr_map = {}
+
+        for _, row in filtered.iterrows():
+            sr_no = row.get("SR리스트NO", "") or "N/A"
+            src = row.get("소스", "")
+            if not src:
+                continue
+
+            cleaned = remove_all_spaces(src)
+            for line in cleaned.splitlines():
+                p = normalize_path(line.strip())
+                if p:
+                    path_sr_map[p] = sr_no
+
         matched = []
         for s in source_lines:
             s_norm = normalize_path(s)
@@ -223,7 +237,8 @@ def main():
             append("[DB]")
             for path in unique_sorted:
                 name = Path(path).name
-                line = f"{db_prefix} {name} ({path})".strip()
+                sr_no = path_sr_map.get(path, "")
+                line = f"{db_prefix} {name} ({sr_no}, {path})".strip()
                 append(line)
             append("")
 
