@@ -1,0 +1,61 @@
+> 2026-01-21 22:21:50
+
+==================================================================
+[SpringMVC-MyBatis-Demo]
+------------------------------------------------------------------
+[REMOVE] D:\deploy\build\SpringMVC-MyBatis-Demo
+[SOURCE] D:\deploy\build\SpringMVC-MyBatis-Demo\source (copied=2, skipped=0)
+  - D:\deploy\build\SpringMVC-MyBatis-Demo\source\src\main\java\com\springapp\mvc\controller\UserController.java
+  - D:\deploy\build\SpringMVC-MyBatis-Demo\source\src\main\java\com\springapp\mvc\controller\TestController.java
+------------------------------------------------------------------
+[BUILD]
+-------
+Path: D:\workspace\java\SpringMVC-MyBatis-Demo\build
+Antfile: D:\program\apache-ant-1.10.15\bin\ant.bat
+Buildfile: D:\workspace\python\files\build_copy\files\SpringMVC-MyBatis-Demo.xml
+
+clean:
+     [echo] Cleaning build and dist directories...
+   [delete] Deleting directory D:\workspace\java\SpringMVC-MyBatis-Demo\build
+
+copy-resources:
+     [echo] Copying webapp resources...
+    [mkdir] Created dir: D:\workspace\java\SpringMVC-MyBatis-Demo\build
+     [copy] Copying 7 files to D:\workspace\java\SpringMVC-MyBatis-Demo\build
+
+compile:
+     [echo] Compiling Java sources...
+    [mkdir] Created dir: D:\workspace\java\SpringMVC-MyBatis-Demo\build\WEB-INF\classes
+    [javac] Compiling 7 source files to D:\workspace\java\SpringMVC-MyBatis-Demo\build\WEB-INF\classes
+     [copy] Copying 1 file to D:\workspace\java\SpringMVC-MyBatis-Demo\build\WEB-INF\classes
+
+build-only:
+     [echo] Build completed (classes + resources + webapp).
+
+BUILD SUCCESSFUL
+Total time: 0 seconds
+[BUILD-OK]
+------------------------------------------------------------------
+[COPY] (2)[D:\deploy\build\SpringMVC-MyBatis-Demo\dev\a, D:\deploy\build\SpringMVC-MyBatis-Demo\prd\b]
+-------
+[O] D:\workspace\java\SpringMVC-MyBatis-Demo\build\WEB-INF\classes\com\springapp\mvc\controller\TestController.class -> (2)[D:\deploy\build\SpringMVC-MyBatis-Demo\dev\a\WEB-INF\classes\com\springapp\mvc\controller\TestController.class, D:\deploy\build\SpringMVC-MyBatis-Demo\prd\b\WEB-INF\classes\com\springapp\mvc\controller\TestController.class]
+    (1)[(1)D:\workspace\java\SpringMVC-MyBatis-Demo\src\main\java\com\springapp\mvc\controller\TestController.java]
+[O] D:\workspace\java\SpringMVC-MyBatis-Demo\build\WEB-INF\classes\com\springapp\mvc\controller\UserController.class -> (2)[D:\deploy\build\SpringMVC-MyBatis-Demo\dev\a\WEB-INF\classes\com\springapp\mvc\controller\UserController.class, D:\deploy\build\SpringMVC-MyBatis-Demo\prd\b\WEB-INF\classes\com\springapp\mvc\controller\UserController.class]
+    (1)[(1)D:\workspace\java\SpringMVC-MyBatis-Demo\src\main\java\com\springapp\mvc\controller\UserController.java]
+==================================================================
+
+==================================================================
+[dev]
+------------------------------------------------------------------
+/wasadmin/a/WEB-INF/classes/com/springapp/mvc/controller/TestController.class
+/wasadmin/a/WEB-INF/classes/com/springapp/mvc/controller/UserController.class
+==================================================================
+
+==================================================================
+[prd]
+------------------------------------------------------------------
+/root/b/WEB-INF/classes/com/springapp/mvc/controller/TestController.class
+/root/b/WEB-INF/classes/com/springapp/mvc/controller/UserController.class
+==================================================================
+
+total(2/2), success(2/2), fail(0/0), fail-unmapped(0/0)

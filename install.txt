@@ -1,0 +1,5 @@
+python 3.13.7
+python 3.14
+
+pip install pyyaml, pillow, pandas, openpyxl
+pip install aiohttp, psutil, requests, jira

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="SpringMVC-MyBatis-Demo" default="build-only" basedir=".">
+
+    <!-- ==== 경로 설정 ==== -->
+    <property name="src.dir" value="src/main/java"/>
+    <property name="resources.dir" value="src/main/resources"/>
+    <property name="webapp.dir" value="src/main/webapp"/>
+    <property name="build.dir" value="build/classes"/>
+    <property name="dist.dir" value="dist"/>
+    <property name="lib.dir" value="lib"/>
+    <property name="jar.name" value="SpringMVC-MyBatis-Demo.jar"/>
+    <property name="war.name" value="SpringMVC-MyBatis-Demo.war"/>
+    <property name="main.class" value="com.example.Main"/>
+    <property name="deploy.dir" value="C:/tomcat/webapps"/>
+
+    <!-- ==== classpath 정의 ==== -->
+    <path id="classpath">
+        <pathelement path="${build.dir}"/>
+        <fileset dir="${lib.dir}" includes="**/*.jar"/>
+    </path>
+
+    <!-- ==== clean ==== -->
+    <target name="clean">
+        <echo message="Cleaning build and dist directories..."/>
+        <delete dir="${build.dir}"/>
+        <delete dir="${dist.dir}"/>
+    </target>
+
+    <!-- ==== compile ==== -->
+    <target name="compile" depends="clean">
+        <mkdir dir="${build.dir}"/>
+        <echo message="Compiling Java sources..."/>
+        <javac srcdir="${src.dir}" destdir="${build.dir}" includeantruntime="false" encoding="UTF-8">
+            <classpath refid="classpath"/>
+        </javac>
+
+        <!-- resources 복사 -->
+        <copy todir="${build.dir}">
+            <fileset dir="${resources.dir}"/>
+        </copy>
+    </target>
+
+    <!-- ==== webapp 복사 ==== -->
+    <target name="copy-resources" depends="compile">
+        <echo message="Copying webapp resources..."/>
+        <mkdir dir="${build.dir}/webapp"/>
+        <copy todir="${build.dir}/webapp">
+            <fileset dir="${webapp.dir}"/>
+        </copy>
+    </target>
+
+    <!-- ==== build-only ==== -->
+    <target name="build-only" depends="copy-resources">
+        <echo message="Build completed (classes + resources + webapp)."/>
+    </target>
+
+    <!-- ==== JAR 생성 ==== -->
+    <target name="jar" depends="compile">
+        <mkdir dir="${dist.dir}"/>
+
+        <!-- lib 폴더의 모든 JAR를 Class-Path 문자열로 생성 -->
+        <manifestclasspath property="jar.classpath" jarfile="${dist.dir}/${jar.name}">
+            <classpath>
+                <fileset dir="${lib.dir}" includes="**/*.jar"/>
+            </classpath>
+        </manifestclasspath>
+
+        <jar destfile="${dist.dir}/${jar.name}" basedir="${build.dir}">
+            <manifest>
+                <attribute name="Main-Class" value="${main.class}"/>
+                <attribute name="Class-Path" value="${jar.classpath}"/>
+            </manifest>
+        </jar>
+
+        <echo message="JAR created: ${dist.dir}/${jar.name}"/>
+    </target>
+
+    <!-- ==== WAR 생성 ==== -->
+    <target name="war" depends="copy-resources">
+        <mkdir dir="${dist.dir}"/>
+        <war destfile="${dist.dir}/${war.name}" webxml="${webapp.dir}/WEB-INF/web.xml">
+            <classes dir="${build.dir}"/>
+            <lib dir="${lib.dir}" includes="**/*.jar"/>
+            <fileset dir="${webapp.dir}" excludes="WEB-INF/web.xml"/>
+        </war>
+        <echo message="WAR created: ${dist.dir}/${war.name}"/>
+    </target>
+
+    <!-- ==== 배포 (Tomcat) ==== -->
+    <target name="deploy" depends="war">
+        <echo message="Deploying WAR to Tomcat..."/>
+        <copy file="${dist.dir}/${war.name}" todir="${deploy.dir}" overwrite="true"/>
+        <echo message="Deployed to: ${deploy.dir}/${war.name}"/>
+    </target>
+</project>

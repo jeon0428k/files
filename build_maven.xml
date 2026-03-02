@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="MyMavenWebApp" default="build" basedir=".">
+    <!-- 기본 설정 -->
+    <property name="src.dir" value="src/main/java" />
+    <property name="resources.dir" value="src/main/resources" />
+    <property name="webapp.dir" value="src/main/webapp" />
+    <property name="build.dir" value="target/classes" />
+    <property name="dist.dir" value="target/dist" />
+    <property name="jar.name" value="app.jar" />
+    <property name="war.name" value="app.war" />
+
+    <!-- Maven이 관리하는 dependency classpath 생성 -->
+    <property name="maven.classpath.file" value="target/classpath.txt" />
+
+    <!-- Maven 명령으로 classpath 생성 -->
+    <target name="resolve-dependencies">
+        <echo message="Resolving Maven dependencies..." />
+        <exec executable="D:\program\apache-maven-3.9.11/bin/mvn.cmd" failonerror="true">
+            <arg value="dependency:build-classpath" />
+            <arg value="-Dmdep.outputFile=${maven.classpath.file}" />
+        </exec>
+    </target>
+
+    <!-- classpath 로드 -->
+    <target name="load-classpath" depends="resolve-dependencies">
+        <loadfile property="maven.classpath" srcFile="${maven.classpath.file}" />
+        <path id="classpath">
+            <pathelement path="${maven.classpath}" />
+            <pathelement location="${build.dir}" />
+            <pathelement location="${resources.dir}" />
+        </path>
+    </target>
+
+    <!-- build (compile) -->
+    <target name="build" depends="load-classpath">
+        <mkdir dir="${build.dir}" />
+        <javac srcdir="${src.dir}" destdir="${build.dir}" includeantruntime="false" encoding="UTF-8">
+            <classpath refid="classpath" />
+        </javac>
+        <copy todir="${build.dir}">
+            <fileset dir="${resources.dir}" />
+        </copy>
+        <echo message="Build complete: ${build.dir}" />
+    </target>
+
+    <!-- JAR 생성 -->
+    <target name="jar" depends="build">
+        <mkdir dir="${dist.dir}" />
+        <jar destfile="${dist.dir}/${jar.name}" basedir="${build.dir}">
+            <manifest>
+                <attribute name="Main-Class" value="com.example.Main" />
+            </manifest>
+        </jar>
+        <echo message="JAR created: ${dist.dir}/${jar.name}" />
+    </target>
+
+    <!-- WAR 생성 -->
+    <target name="war" depends="build">
+        <mkdir dir="${dist.dir}" />
+        <war destfile="${dist.dir}/${war.name}" webxml="${webapp.dir}/WEB-INF/web.xml">
+            <fileset dir="${webapp.dir}" />
+            <lib dir="target/dependency" />
+            <classes dir="${build.dir}" />
+        </war>
+        <echo message="WAR created: ${dist.dir}/${war.name}" />
+    </target>
+
+    <!-- clean -->
+    <target name="clean">
+        <delete dir="${build.dir}" />
+        <delete dir="${dist.dir}" />
+        <delete file="${maven.classpath.file}" />
+        <echo message="Clean complete." />
+    </target>
+</project>
