@@ -1,0 +1,9 @@
+github:
+  token: "YOUR_GITHUB_TOKEN"
+  base_url: "https://github.yourcompany.com/api/v3"
+  timeout: 30
+  user_agent: "python-github-api-client"
+  accept: "application/vnd.github+json"
+  auto_rate_limit_wait: true
+  max_retries: 3
+  retry_backoff_sec: 1.0
