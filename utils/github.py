@@ -3,7 +3,7 @@ import json
 import yaml
 import requests
 import subprocess
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 
