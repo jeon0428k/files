@@ -1,10 +1,10 @@
-import os
 import time
 import json
 import yaml
 import requests
 import subprocess
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 
 def load_config(path: str = "./config/github.config.yml") -> Dict[str, Any]:
@@ -93,8 +93,11 @@ class GitHubAPI:
     def _curl_request(self, method, url, headers, params, body):
 
         if params:
-            query = "&".join([f"{k}={v}" for k, v in params.items()])
-            url = f"{url}?{query}"
+            parts = urlsplit(url)
+            existing = dict(parse_qsl(parts.query, keep_blank_values=True))
+            merged = {**existing, **params}
+            query = urlencode(merged, doseq=True)
+            url = urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
         cmd = ["curl", "-sS", "-X", method]
 
