@@ -244,10 +244,93 @@ class GitHubAPI:
         )
 
 
+def get_prs_created_by_users(
+    gh,
+    owner: str,
+    repo: str,
+    users: Optional[List[str]] = None,
+    state: str = "all",
+) -> List[Dict[str, Any]]:
+
+    if not users:
+        prs = gh.request(
+            "GET",
+            f"/repos/{owner}/{repo}/pulls",
+            params={"state": state, "per_page": 100},
+            paginate=True,
+        )
+        return [
+            {
+                "number": pr["number"],
+                "title": pr["title"],
+                "author": pr["user"]["login"],
+                "state": pr["state"],
+                "url": pr["html_url"],
+                "created_at": pr["created_at"],
+                "updated_at": pr["updated_at"],
+            }
+            for pr in prs
+        ]
+
+    merged = {}
+    for u in users:
+        q = f"is:pr repo:{owner}/{repo} author:{u}"
+        if state in ("open", "closed"):
+            q += f" state:{state}"
+
+        res = gh.request(
+            "GET",
+            "/search/issues",
+            params={"q": q, "per_page": 100, "sort": "created", "order": "desc"},
+            paginate=True,
+            item_key="items",
+        )
+
+        for it in res.get("items", []):
+            merged[it["number"]] = {
+                "number": it["number"],
+                "title": it["title"],
+                "state": it["state"],
+                "url": it["html_url"],
+                "created_at": it["created_at"],
+                "updated_at": it["updated_at"],
+                "author": u,
+            }
+
+    return sorted(merged.values(), key=lambda x: (x["created_at"], x["number"]), reverse=True)
+
+
+def get_pr_detail(gh, owner: str, repo: str, pr_number: int):
+    return gh.request("GET", f"/repos/{owner}/{repo}/pulls/{pr_number}")
+
+
+def get_pr_files(gh, owner: str, repo: str, pr_number: int):
+    return gh.request(
+        "GET",
+        f"/repos/{owner}/{repo}/pulls/{pr_number}/files",
+        params={"per_page": 100},
+        paginate=True,
+    )
+
+
 if __name__ == "__main__":
 
     gh = GitHubAPI("./config/github.config.yml")
 
     result = gh.request("GET", "/user")
+    gh.print_output(result)
 
+    result = get_prs_created_by_users(
+        gh,
+        owner="YOUR_ORG",
+        repo="abc",
+        users=["user1", "user2"],
+        state="all",
+    )
+    gh.print_output(result)
+
+    result = get_pr_detail(gh, "YOUR_ORG", "abc", 123)
+    gh.print_output(result)
+
+    result = get_pr_files(gh, "YOUR_ORG", "abc", 123)
     gh.print_output(result)
