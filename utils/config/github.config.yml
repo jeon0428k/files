@@ -8,6 +8,7 @@ github:
   max_retries: 3
   retry_backoff_sec: 1.0
   is_session: false
+  is_pretty_console: true
 
   proxy:
     http: "http://proxy.yourcompany.com:8080"

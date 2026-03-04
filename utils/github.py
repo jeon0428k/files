@@ -25,6 +25,7 @@ class ProxyAuthError(GitHubAPIError):
 
 
 class GitHubAPI:
+
     def __init__(self, config_path: str = "./config/github.config.yml"):
         cfg = load_config(config_path)
         gh = cfg["github"]
@@ -38,6 +39,7 @@ class GitHubAPI:
         self.max_retries = int(gh.get("max_retries", 3))
         self.retry_backoff_sec = float(gh.get("retry_backoff_sec", 1.0))
         self.is_session = bool(gh.get("is_session", True))
+        self.is_pretty_console = bool(gh.get("is_pretty_console", False))
 
         proxy_cfg = (gh.get("proxy") or {})
         proxies = {
@@ -55,6 +57,15 @@ class GitHubAPI:
             self.session = requests.Session()
             if self.proxies:
                 self.session.proxies.update(self.proxies)
+
+    def print_output(self, data: Any):
+        if isinstance(data, (dict, list)):
+            if self.is_pretty_console:
+                print(json.dumps(data, indent=2, ensure_ascii=False))
+            else:
+                print(json.dumps(data, ensure_ascii=False))
+        else:
+            print(data)
 
     def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         headers = {
@@ -80,6 +91,7 @@ class GitHubAPI:
             return text
 
     def _curl_request(self, method, url, headers, params, body):
+
         if params:
             query = "&".join([f"{k}={v}" for k, v in params.items()])
             url = f"{url}?{query}"
@@ -109,7 +121,7 @@ class GitHubAPI:
             if "407" in result.stderr:
                 raise ProxyAuthError(
                     407,
-                    "Proxy authentication required. Check proxy credentials or company proxy configuration.",
+                    "Proxy authentication required. Check proxy credentials or proxy configuration.",
                     result.stderr
                 )
             raise RuntimeError(result.stderr)
@@ -157,7 +169,7 @@ class GitHubAPI:
             if resp.status_code == 407:
                 raise ProxyAuthError(
                     407,
-                    "Proxy authentication required. Check proxy credentials or company proxy configuration.",
+                    "Proxy authentication required. Check proxy credentials or proxy configuration.",
                     resp.text
                 )
 
@@ -181,6 +193,7 @@ class GitHubAPI:
         return None
 
     def _paginate_collect(self, first_resp, method, json_body, data, headers, item_key):
+
         payload = first_resp.json()
 
         if item_key and isinstance(payload, dict):
@@ -193,6 +206,7 @@ class GitHubAPI:
         next_url = self._parse_next_link(first_resp.headers.get("Link"))
 
         while next_url:
+
             resp = self.session.request(
                 method,
                 next_url,
@@ -220,7 +234,9 @@ class GitHubAPI:
         return result
 
     def graphql(self, query: str, variables: Optional[Dict[str, Any]] = None):
+
         url = self.base_url + "/graphql"
+
         return self.request(
             "POST",
             url,
@@ -229,6 +245,9 @@ class GitHubAPI:
 
 
 if __name__ == "__main__":
+
     gh = GitHubAPI("./config/github.config.yml")
-    user = gh.request("GET", "/user")
-    print(user["login"])
+
+    result = gh.request("GET", "/user")
+
+    gh.print_output(result)
