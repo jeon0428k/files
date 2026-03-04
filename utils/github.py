@@ -247,14 +247,59 @@ class GitHubAPI:
         )
 
 
+def _extract_approvals_from_reviews(reviews: List[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str], List[str], List[Dict[str, Any]]]:
+    approved_events = []
+    for rv in reviews:
+        if rv.get("state") == "APPROVED":
+            user = (rv.get("user") or {}).get("login")
+            approved_events.append({
+                "approved_at": rv.get("submitted_at"),
+                "approved_by": user,
+                "review_id": rv.get("id"),
+            })
+
+    approved_events = [x for x in approved_events if x.get("approved_at")]
+    approved_events.sort(key=lambda x: x["approved_at"])
+
+    first_approved_at = approved_events[0]["approved_at"] if approved_events else None
+    last_approved_at = approved_events[-1]["approved_at"] if approved_events else None
+
+    approvers = []
+    seen = set()
+    for x in approved_events:
+        u = x.get("approved_by")
+        if u and u not in seen:
+            seen.add(u)
+            approvers.append(u)
+
+    return first_approved_at, last_approved_at, approvers, approved_events
+
+
+def _get_pr_approval_info(gh, owner: str, repo: str, pr_number: int) -> Dict[str, Any]:
+    reviews = gh.request(
+        "GET",
+        f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+        params={"per_page": 100},
+        paginate=True,
+    )
+    first_at, last_at, approvers, approved_events = _extract_approvals_from_reviews(reviews)
+    return {
+        "first_approved_at": first_at,
+        "last_approved_at": last_at,
+        "approvers": approvers,
+        "approved_events": approved_events,
+    }
+
+
 def get_prs_created_by_users(
     gh,
     owner: str,
     repo: str,
     users: Optional[List[str]] = None,
+    created_after: Optional[str] = None,
+    include_approval_events: bool = False,
     state: str = "all",
 ) -> List[Dict[str, Any]]:
-
     if not users:
         prs = gh.request(
             "GET",
@@ -262,22 +307,40 @@ def get_prs_created_by_users(
             params={"state": state, "per_page": 100},
             paginate=True,
         )
-        return [
-            {
-                "number": pr["number"],
-                "title": pr["title"],
-                "author": pr["user"]["login"],
-                "state": pr["state"],
-                "url": pr["html_url"],
-                "created_at": pr["created_at"],
-                "updated_at": pr["updated_at"],
-            }
-            for pr in prs
-        ]
 
-    merged = {}
-    for u in users:
-        q = f"is:pr repo:{owner}/{repo} author:{u}"
+        result = []
+        for pr in prs:
+            if created_after and pr.get("created_at", "")[:10] < created_after:
+                continue
+
+            pr_number = pr["number"]
+            approval_info = _get_pr_approval_info(gh, owner, repo, pr_number)
+
+            item = {
+                "number": pr_number,
+                "title": pr.get("title"),
+                "author": (pr.get("user") or {}).get("login"),
+                "state": pr.get("state"),
+                "created_at": pr.get("created_at"),
+                "url": pr.get("html_url"),
+                "first_approved_at": approval_info["first_approved_at"],
+                "last_approved_at": approval_info["last_approved_at"],
+                "approvers": approval_info["approvers"],
+            }
+            if include_approval_events:
+                item["approved_events"] = approval_info["approved_events"]
+
+            result.append(item)
+
+        result.sort(key=lambda x: (x["created_at"] or "", x["number"]), reverse=True)
+        return result
+
+    merged: Dict[int, Dict[str, Any]] = {}
+
+    for user in users:
+        q = f"is:pr repo:{owner}/{repo} author:{user}"
+        if created_after:
+            q += f" created:>={created_after}"
         if state in ("open", "closed"):
             q += f" state:{state}"
 
@@ -290,17 +353,29 @@ def get_prs_created_by_users(
         )
 
         for it in res.get("items", []):
-            merged[it["number"]] = {
-                "number": it["number"],
-                "title": it["title"],
-                "state": it["state"],
-                "url": it["html_url"],
-                "created_at": it["created_at"],
-                "updated_at": it["updated_at"],
-                "author": u,
-            }
+            pr_number = it["number"]
 
-    return sorted(merged.values(), key=lambda x: (x["created_at"], x["number"]), reverse=True)
+            if pr_number not in merged:
+                approval_info = _get_pr_approval_info(gh, owner, repo, pr_number)
+
+                item = {
+                    "number": pr_number,
+                    "title": it.get("title"),
+                    "author": user,
+                    "state": it.get("state"),
+                    "created_at": it.get("created_at"),
+                    "url": it.get("html_url"),
+                    "first_approved_at": approval_info["first_approved_at"],
+                    "last_approved_at": approval_info["last_approved_at"],
+                    "approvers": approval_info["approvers"],
+                }
+                if include_approval_events:
+                    item["approved_events"] = approval_info["approved_events"]
+
+                merged[pr_number] = item
+
+    result = sorted(merged.values(), key=lambda x: (x["created_at"] or "", x["number"]), reverse=True)
+    return result
 
 
 def get_pr_detail(gh, owner: str, repo: str, pr_number: int):
@@ -328,6 +403,8 @@ if __name__ == "__main__":
         owner="YOUR_ORG",
         repo="abc",
         users=["user1", "user2"],
+        created_after="2024-01-01",
+        include_approval_events=False,
         state="all",
     )
     gh.print_output(result)
