@@ -2,7 +2,7 @@ import os
 import time
 import yaml
 import requests
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 
 def load_config(path: str = "./config/github.config.yml") -> Dict[str, Any]:
@@ -18,20 +18,43 @@ class GitHubAPIError(RuntimeError):
         self.response_text = response_text
 
 
+class ProxyAuthError(GitHubAPIError):
+    pass
+
+
 class GitHubAPI:
     def __init__(self, config_path: str = "./config/github.config.yml"):
         cfg = load_config(config_path)
+        gh = cfg["github"]
 
-        self.token = cfg["github"]["token"]
-        self.base_url = cfg["github"]["base_url"].rstrip("/")
-        self.timeout = int(cfg["github"].get("timeout", 30))
-        self.user_agent = cfg["github"].get("user_agent", "python-github-api-client")
-        self.accept = cfg["github"].get("accept", "application/vnd.github+json")
-        self.auto_rate_limit_wait = bool(cfg["github"].get("auto_rate_limit_wait", True))
-        self.max_retries = int(cfg["github"].get("max_retries", 3))
-        self.retry_backoff_sec = float(cfg["github"].get("retry_backoff_sec", 1.0))
+        self.token = gh["token"]
+        self.base_url = gh["base_url"].rstrip("/")
+        self.timeout = int(gh.get("timeout", 30))
+        self.user_agent = gh.get("user_agent", "python-github-api-client")
+        self.accept = gh.get("accept", "application/vnd.github+json")
+        self.auto_rate_limit_wait = bool(gh.get("auto_rate_limit_wait", True))
+        self.max_retries = int(gh.get("max_retries", 3))
+        self.retry_backoff_sec = float(gh.get("retry_backoff_sec", 1.0))
+
+        proxy_cfg = (gh.get("proxy") or {})
+        proxies = {
+            "http": proxy_cfg.get("http"),
+            "https": proxy_cfg.get("https"),
+        }
+        self.proxies = {k: v for k, v in proxies.items() if v}
+
+        self.verify_ssl = bool(proxy_cfg.get("verify_ssl", True))
+        self.ca_bundle = (proxy_cfg.get("ca_bundle") or "").strip()
+        self.verify = self.ca_bundle if self.ca_bundle else self.verify_ssl
+
+        no_proxy = proxy_cfg.get("no_proxy")
+        if no_proxy:
+            os.environ["NO_PROXY"] = str(no_proxy)
+            os.environ["no_proxy"] = str(no_proxy)
 
         self.session = requests.Session()
+        if self.proxies:
+            self.session.proxies.update(self.proxies)
 
     def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         headers = {
@@ -113,11 +136,12 @@ class GitHubAPI:
                     data=data,
                     headers=req_headers,
                     timeout=self.timeout,
+                    verify=self.verify,
                 )
-            except (requests.ConnectionError, requests.Timeout):
+            except (requests.ConnectionError, requests.Timeout) as e:
                 attempt += 1
                 if attempt > self.max_retries:
-                    raise
+                    raise RuntimeError(f"Request failed after retries: {e}") from e
                 time.sleep(self.retry_backoff_sec * (2 ** (attempt - 1)))
                 continue
 
@@ -167,6 +191,7 @@ class GitHubAPI:
                 next_url,
                 headers=headers,
                 timeout=self.timeout,
+                verify=self.verify,
             )
 
             if self._maybe_wait_rate_limit(resp):
@@ -208,16 +233,65 @@ class GitHubAPI:
             return resp.json()
         return resp.text
 
+    def _friendly_proxy_407_message(self, resp: requests.Response) -> str:
+        proxy_auth = resp.headers.get("Proxy-Authenticate", "") or ""
+        via = resp.headers.get("Via", "") or ""
+        proxy_conn = resp.headers.get("Proxy-Connection", "") or ""
+        server = resp.headers.get("Server", "") or ""
+
+        hint_parts = []
+        if proxy_auth:
+            hint_parts.append(f"Proxy-Authenticate: {proxy_auth}")
+        if via:
+            hint_parts.append(f"Via: {via}")
+        if proxy_conn:
+            hint_parts.append(f"Proxy-Connection: {proxy_conn}")
+        if server:
+            hint_parts.append(f"Server: {server}")
+
+        proxy_urls = []
+        if self.proxies.get("http"):
+            proxy_urls.append(f"http={self.proxies['http']}")
+        if self.proxies.get("https"):
+            proxy_urls.append(f"https={self.proxies['https']}")
+
+        proxy_cfg_hint = ""
+        if proxy_urls:
+            proxy_cfg_hint = " / ".join(proxy_urls)
+
+        base = "Proxy authentication required (HTTP 407)."
+        details = " ".join(hint_parts).strip()
+        cfg = f"Configured proxy: {proxy_cfg_hint}".strip() if proxy_cfg_hint else "No proxy configured in client."
+        action = (
+            "Check proxy credentials (user:pass@proxy:port), corporate SSO approval, or ask your IT for the correct proxy settings."
+        )
+
+        msg = base
+        if details:
+            msg += " " + details
+        msg += " " + cfg + " " + action
+        return msg.strip()
+
     def _raise_for_status(self, resp: requests.Response) -> None:
+        if resp.status_code == 407:
+            raise ProxyAuthError(resp.status_code, self._friendly_proxy_407_message(resp), resp.text)
+
         try:
             payload = resp.json()
             message = payload.get("message", resp.reason)
+            if isinstance(payload, dict) and "errors" in payload and isinstance(payload["errors"], list):
+                details = "; ".join(
+                    str(e.get("message", "")) for e in payload["errors"] if isinstance(e, dict) and e.get("message")
+                )
+                if details:
+                    message = (message + " " + details).strip()
         except Exception:
-            message = resp.reason
+            message = resp.reason or "Request failed"
+
         raise GitHubAPIError(resp.status_code, message, resp.text)
 
 
 if __name__ == "__main__":
     gh = GitHubAPI("./config/github.config.yml")
-    user = gh.request("GET", "/user")
-    print(user["login"])
+    me = gh.request("GET", "/user")
+    print(me["login"])
