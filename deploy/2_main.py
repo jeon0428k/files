@@ -51,24 +51,6 @@ def load_worklist(worklist_path: Path) -> list[str]:
 
 
 # -------------------------------------------------------------
-# copy_list 분석
-# -------------------------------------------------------------
-def analyze_copy_list(repo: dict, copy_list: list[str]):
-    repo["raw_copy_list"] = list(copy_list)
-    repo["copy_count_map"] = Counter(copy_list)
-    repo["unique_copy_list"] = list(repo["copy_count_map"].keys())
-
-
-# -------------------------------------------------------------
-# db_list 분석
-# -------------------------------------------------------------
-def analyze_db_list(repo: dict, db_list: list[str]):
-    repo["raw_db_list"] = list(db_list)
-    repo["db_count_map"] = Counter(db_list)
-    repo["unique_db_list"] = list(repo["db_count_map"].keys())
-
-
-# -------------------------------------------------------------
 # 패턴 매칭 (db_file_paths 용)
 # - FileManager의 exclude/glob과 동일하게 fnmatch 사용
 # -------------------------------------------------------------
@@ -95,7 +77,6 @@ def distribute_worklist_to_repos(repos: list[dict], worklist: list[str]):
                 if line.startswith(prefix):
                     matched.append(line)
                     break
-        analyze_copy_list(repo, matched)
 
         db_patterns = repo.get("db_file_paths", []) or []
         db_matched = []
@@ -103,7 +84,15 @@ def distribute_worklist_to_repos(repos: list[dict], worklist: list[str]):
             for line in worklist:
                 if match_any_pattern(line, db_patterns):
                     db_matched.append(line)
-        analyze_db_list(repo, db_matched)
+
+        matched = [x for x in matched if x not in set(db_matched)]
+
+        repo["raw_copy_list"] = list(matched)
+        repo["copy_count_map"] = Counter(matched)
+        repo["unique_copy_list"] = list(repo["copy_count_map"].keys())
+        repo["raw_db_list"] = list(db_matched)
+        repo["db_count_map"] = Counter(db_matched)
+        repo["unique_db_list"] = list(repo["db_count_map"].keys())
 
 
 # -------------------------------------------------------------
