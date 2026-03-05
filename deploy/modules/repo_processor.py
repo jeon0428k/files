@@ -103,17 +103,18 @@ class RepoProcessor:
             copy_exclude_paths,
         )
 
-        # summary 기능을 위해 추가
-        repo_info["exist_files"] = exist_files
-        repo_info["missing_files"] = missing_files
-        repo_info["excluded_files"] = excluded_files
-
         # -------------------- DB File 존재 체크 (repo root 기준) --------------------
         db_exist_files, db_missing_files = self.fm.check_db_files_exist(
             repo_dir,
             unique_db_list,
         )
 
+        missing_files = [x for x in missing_files if x not in set(db_exist_files) | set(db_missing_files)]
+
+        # summary 기능을 위해 추가
+        repo_info["exist_files"] = exist_files
+        repo_info["missing_files"] = missing_files
+        repo_info["excluded_files"] = excluded_files
         repo_info["db_exist_files"] = db_exist_files
         repo_info["db_missing_files"] = db_missing_files
 
@@ -217,17 +218,18 @@ class RepoProcessor:
             copy_exclude_paths,
         )
 
-        # summary 기능을 위해 추가
-        repo_info["exist_files"] = exist_files
-        repo_info["missing_files"] = missing_files
-        repo_info["excluded_files"] = excluded_files
-
         # -------------------- DB File 존재 체크 (repo root 기준) --------------------
         db_exist_files, db_missing_files = self.fm.check_db_files_exist(
             repo_dir,
             unique_db_list,
         )
 
+        missing_files = [x for x in missing_files if x not in set(db_exist_files) | set(db_missing_files)]
+
+        # summary 기능을 위해 추가
+        repo_info["exist_files"] = exist_files
+        repo_info["missing_files"] = missing_files
+        repo_info["excluded_files"] = excluded_files
         repo_info["db_exist_files"] = db_exist_files
         repo_info["db_missing_files"] = db_missing_files
 
