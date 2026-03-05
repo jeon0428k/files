@@ -65,6 +65,56 @@ def match_any_pattern(path: str, patterns: list[str]) -> bool:
     return False
 
 
+def apply_worklist_transforms(worklist: list[str], repos: list[dict]) -> list[str]:
+
+    if not worklist:
+        return worklist
+
+    original = list(worklist)     # prefix 매칭 기준(변환 전)
+    transformed = list(worklist)  # 실제 변환 결과
+
+    def _split_parts(p: str) -> list[str]:
+        p = normalize_path(p).replace("\\", "/")
+        return [x for x in p.split("/") if x]
+
+    def _join_parts(parts: list[str]) -> str:
+        return "/".join(parts)
+
+    def _apply_rules(path: str, rules: list) -> str:
+        parts = _split_parts(path)
+
+        for pair in (rules or []):
+            if not pair or len(pair) != 2:
+                continue
+
+            target, trans = pair[0], pair[1]
+            t_parts = _split_parts(target)
+            r_parts = _split_parts(trans)
+
+            if not t_parts:
+                continue
+
+            # 부분 경로 첫 매칭 1회 치환
+            for i in range(len(parts) - len(t_parts) + 1):
+                if parts[i:i + len(t_parts)] == t_parts:
+                    parts[i:i + len(t_parts)] = r_parts
+                    break
+
+        return _join_parts(parts)
+
+    for repo in repos:
+        prefixes = repo.get("worklist_prefixes", []) or []
+        rules = repo.get("worklist_trans_path", []) or []
+        if not prefixes or not rules:
+            continue
+
+        for idx, raw_line in enumerate(original):
+            if any(raw_line.startswith(prefix) for prefix in prefixes):
+                transformed[idx] = _apply_rules(transformed[idx], rules)
+
+    return transformed
+
+
 # -------------------------------------------------------------
 # worklist 분배
 # -------------------------------------------------------------
@@ -390,6 +440,8 @@ def main():
         for repo in repos:
             items = repo.get("copy_list", []) or []
             worklist.extend(normalize_path(x) for x in items if str(x).strip())
+
+    worklist = apply_worklist_transforms(worklist, repos)
     distribute_worklist_to_repos(repos, worklist)
 
     # Manager 생성
