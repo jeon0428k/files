@@ -1,8 +1,12 @@
 /* utils.js - Call Monitor Utility (ES6 Proxy if available, else ES5 wrap fallback)
- * Usage (browser):
+ * Added:
+ *  - roots: restrict monitoring to user-defined namespaces (recommended)
+ *  - onlyUser: filter logs by stack allow/deny patterns to reduce library noise (e.g., grid)
+ *
+ * Usage:
  *   <script src="utils.js"></script>
- *   CallMonitor.install({ logArgs: true });
- *   // ... do something ...
+ *   CallMonitor.install({ roots: ["App", "myApp"], onlyUser: true });
+ *   // ...
  *   CallMonitor.uninstall();
  */
 (function (root) {
@@ -13,11 +17,27 @@
     prefix: '[CALL]',
     logArgs: false,
     trace: false,
-    maxDepth: 8,             // ES5 recursion depth
-    maxGlobals: 5000,        // window scan safety limit
+    maxDepth: 8,              // ES5 recursion depth
+    maxGlobals: 5000,         // window scan safety limit
+
+    // 기존 exclude
     excludeGlobalName: /^(webkit|moz|ms|on|__|chrome|safari|google|webkitStorageInfo$)/i,
     excludeObjectName: /^(window|document|location|navigator|history|console|localStorage|sessionStorage|indexedDB)$/i,
-    includeOnly: null         // RegExp or null. If set, only logs matching names.
+
+    // 필터/제한 옵션
+    includeOnly: null,        // RegExp or null: function name/path 기준 allow
+
+    // 신규: 사용자 코드만 로그 출력(기본 true 권장)
+    onlyUser: true,
+
+    // 신규: 전역(window) 전체가 아니라 특정 루트만 감시 (가장 추천)
+    // 예: ["App", "myApp"] => window.App, window.myApp 만 감시
+    roots: null,
+
+    // 신규: stack 기반 deny/allow
+    // deny에 걸리면 로그 제외, allow가 있으면 allow에 먼저 통과해야 함
+    stackDeny: /(node_modules|ag-grid|grid|react|vue|vendor|webpack|bundle)\b/i,
+    stackAllow: null
   };
 
   function shallowCopy(dst, src) {
@@ -61,7 +81,6 @@
   function supportsProxyES6() {
     try {
       if (typeof root.Proxy !== 'function' || typeof root.Reflect !== 'object') return false;
-      // Check ES6 syntax support
       /* eslint no-new-func: "off" */
       new Function('let a=1; const b=2; return (()=>a+b)();');
       return true;
@@ -70,11 +89,51 @@
     }
   }
 
+  function createState(cfg) {
+    var state = {
+      cfg: shallowCopy(shallowCopy({}, DEFAULT_CFG), cfg || {}),
+      mode: null, // "es6" | "es5"
+      installed: false,
+      originals: {
+        fetch: null,
+        setTimeout: null,
+        setInterval: null,
+        addEventListener: null, // EventTarget.prototype.addEventListener
+        xhrOpen: null,
+        xhrSend: null
+      },
+      wrapped: [],       // ES5 restore { obj, key, original }
+      proxiedGlobals: [],// ES6 restore { key, original }
+      proxyCache: null,
+      installTime: now()
+    };
+    return state;
+  }
+
   function makeLogger(state) {
+    function isUserCallByStack() {
+      if (!state.cfg.onlyUser) return true;
+
+      var st = '';
+      try { st = (new Error()).stack || ''; } catch (e) {}
+
+      // allow가 있으면 allow에 반드시 통과해야 함
+      if (state.cfg.stackAllow && !state.cfg.stackAllow.test(st)) return false;
+
+      // deny가 매치되면 제외
+      if (state.cfg.stackDeny && state.cfg.stackDeny.test(st)) return false;
+
+      return true;
+    }
+
     return function logCall(name, argsLike) {
       if (!state.cfg.enabled) return;
 
+      // 이름 기반 allow
       if (state.cfg.includeOnly && !state.cfg.includeOnly.test(name)) return;
+
+      // 사용자 코드만 출력(스택 기반)
+      if (!isUserCallByStack()) return;
 
       try {
         if (state.cfg.logArgs) {
@@ -91,34 +150,7 @@
     };
   }
 
-  function createState(cfg) {
-    var state = {
-      cfg: shallowCopy(shallowCopy({}, DEFAULT_CFG), cfg || {}),
-      mode: null, // "es6" | "es5"
-      installed: false,
-      originals: {
-        // patched function originals
-        fetch: null,
-        setTimeout: null,
-        setInterval: null,
-        addEventListener: null, // EventTarget.prototype.addEventListener
-        xhrOpen: null,
-        xhrSend: null
-      },
-      // ES5: restore wrappers
-      wrapped: [], // { obj, key, original }
-      // ES6: restore globals swapped with proxies
-      proxiedGlobals: [], // { key, original }
-      // ES6: proxy cache
-      proxyCache: null,
-      log: null,
-      installTime: now()
-    };
-    state.log = makeLogger(state);
-    return state;
-  }
-
-  function hookCommonEntrypoints(state) {
+  function hookCommonEntrypoints(state, log) {
     // fetch
     try {
       if (typeof root.fetch === 'function') {
@@ -126,7 +158,7 @@
         if (!root.fetch.__cm_hooked__) {
           var origFetch = state.originals.fetch;
           root.fetch = function () {
-            state.log('fetch', arguments);
+            log('fetch', arguments);
             return origFetch.apply(this, arguments);
           };
           root.fetch.__cm_hooked__ = true;
@@ -144,7 +176,7 @@
             if (typeof fn === 'function') {
               var name = 'setTimeout -> ' + (fn.name || 'anonymous');
               return _st.call(this, function () {
-                state.log(name, arguments);
+                log(name, arguments);
                 return fn.apply(this, arguments);
               }, t);
             }
@@ -165,7 +197,7 @@
             if (typeof fn === 'function') {
               var name2 = 'setInterval -> ' + (fn.name || 'anonymous');
               return _si.call(this, function () {
-                state.log(name2, arguments);
+                log(name2, arguments);
                 return fn.apply(this, arguments);
               }, t);
             }
@@ -187,7 +219,7 @@
             if (typeof listener === 'function' && !listener.__cm_wrapped_listener__) {
               var lname = listener.name || 'anonymous';
               var wrapped = function () {
-                state.log('event:' + type + ' -> ' + lname, arguments);
+                log('event:' + type + ' -> ' + lname, arguments);
                 return listener.apply(this, arguments);
               };
               wrapped.__cm_wrapped_listener__ = true;
@@ -220,7 +252,7 @@
         if (typeof XHR.prototype.send === 'function' && !XHR.prototype.send.__cm_hooked__) {
           var send = state.originals.xhrSend;
           XHR.prototype.send = function () {
-            state.log('xhr:' + (this.__cm_m || '') + ' ' + (this.__cm_u || ''), arguments);
+            log('xhr:' + (this.__cm_m || '') + ' ' + (this.__cm_u || ''), arguments);
             return send.apply(this, arguments);
           };
           XHR.prototype.send.__cm_hooked__ = true;
@@ -232,7 +264,7 @@
   // -----------------------------
   // ES6 mode (Proxy)
   // -----------------------------
-  function installES6(state) {
+  function installES6(state, log) {
     state.mode = 'es6';
     state.proxyCache = new WeakMap();
 
@@ -262,9 +294,8 @@
           if (typeof v === 'function') {
             return function () {
               var name = path + '.' + String(prop);
-              state.log(name, arguments);
+              log(name, arguments);
 
-              // this 보정: proxy->real object
               var thisArg = this;
               if (thisArg === receiver) thisArg = obj;
 
@@ -280,7 +311,7 @@
           return v;
         },
         apply: function (fn, thisArg, args) {
-          state.log(path + '()', args);
+          log(path + '()', args);
           return root.Reflect.apply(fn, thisArg, args);
         }
       };
@@ -291,9 +322,28 @@
       return p;
     }
 
-    hookCommonEntrypoints(state);
+    hookCommonEntrypoints(state, log);
 
-    // Proxy globals (best-effort)
+    // roots 지정 시: 해당 루트만 proxify (추천)
+    var roots = state.cfg.roots;
+    if (roots && roots.length) {
+      for (var i = 0; i < roots.length; i++) {
+        var rk = roots[i];
+        try {
+          var rv = root[rk];
+          if (!rv) continue;
+          if (!canWriteProperty(root, rk)) continue;
+
+          var rp = proxify(rv, 'window.' + rk);
+          state.proxiedGlobals.push({ key: rk, original: rv });
+          root[rk] = rp;
+        } catch (e) {}
+      }
+      state.installed = true;
+      return;
+    }
+
+    // roots 미지정 시: 기존처럼 window 스캔 (노이즈 많을 수 있음)
     var count = 0;
     for (var k in root) {
       count++;
@@ -316,12 +366,9 @@
 
       try {
         var p2 = proxify(v, 'window.' + k);
-        // record for uninstall
         state.proxiedGlobals.push({ key: k, original: v });
         root[k] = p2;
-      } catch (e) {
-        // some host objects can't be proxied
-      }
+      } catch (e) {}
     }
 
     state.installed = true;
@@ -330,7 +377,7 @@
   // -----------------------------
   // ES5 mode (wrap)
   // -----------------------------
-  function installES5(state) {
+  function installES5(state, log) {
     state.mode = 'es5';
 
     function alreadyWrapped(fn) {
@@ -347,7 +394,7 @@
       try {
         obj[key] = (function (name, orig) {
           function wrapped() {
-            state.log(name, arguments);
+            log(name, arguments);
             return orig.apply(this, arguments);
           }
           wrapped.__cm_wrapped__ = true;
@@ -384,9 +431,27 @@
       }
     }
 
-    hookCommonEntrypoints(state);
+    hookCommonEntrypoints(state, log);
 
-    // walk global objects
+    // roots 지정 시: 해당 루트만 walk (추천)
+    var roots = state.cfg.roots;
+    if (roots && roots.length) {
+      for (var r = 0; r < roots.length; r++) {
+        var rk = roots[r];
+        try {
+          var rv = root[rk];
+          if (!rv) continue;
+          if (rv === root || rv === root.document) continue;
+          if (isProbablyDOM(rv)) continue;
+
+          walk(rv, 'window.' + rk, 0);
+        } catch (e) {}
+      }
+      state.installed = true;
+      return;
+    }
+
+    // roots 미지정 시: window 전체 스캔
     var count = 0;
     for (var g in root) {
       count++;
@@ -411,21 +476,13 @@
     state.installed = true;
   }
 
-  function uninstall(state) {
+  function uninstallInternal(state) {
     if (!state || !state.installed) return;
 
     // restore patched entrypoints
-    try {
-      if (state.originals.fetch) root.fetch = state.originals.fetch;
-    } catch (e) {}
-
-    try {
-      if (state.originals.setTimeout) root.setTimeout = state.originals.setTimeout;
-    } catch (e) {}
-
-    try {
-      if (state.originals.setInterval) root.setInterval = state.originals.setInterval;
-    } catch (e) {}
+    try { if (state.originals.fetch) root.fetch = state.originals.fetch; } catch (e) {}
+    try { if (state.originals.setTimeout) root.setTimeout = state.originals.setTimeout; } catch (e) {}
+    try { if (state.originals.setInterval) root.setInterval = state.originals.setInterval; } catch (e) {}
 
     try {
       if (state.originals.addEventListener && typeof root.EventTarget !== 'undefined' && root.EventTarget.prototype) {
@@ -447,7 +504,7 @@
     }
     state.wrapped = [];
 
-    // restore ES6 proxied globals
+    // restore ES6 proxied globals (only those we swapped)
     for (var j = 0; j < state.proxiedGlobals.length; j++) {
       var p = state.proxiedGlobals[j];
       try { root[p.key] = p.original; } catch (e) {}
@@ -463,25 +520,35 @@
 
     function install(cfg) {
       if (_state && _state.installed) return _state.mode;
+
       _state = createState(cfg || {});
+      var log = makeLogger(_state);
 
       if (supportsProxyES6()) {
-        try { installES6(_state); }
-        catch (e) { installES5(_state); }
+        try { installES6(_state, log); }
+        catch (e) { installES5(_state, log); }
       } else {
-        installES5(_state);
+        installES5(_state, log);
       }
 
       try {
         root.console.log('[hook] installed:', _state.mode === 'es6' ? 'ES6 Proxy mode' : 'ES5 wrap mode');
+        if (_state.cfg.roots && _state.cfg.roots.length) {
+          root.console.log('[hook] roots:', _state.cfg.roots);
+        } else {
+          root.console.log('[hook] roots not set -> window scan mode (may be noisy)');
+        }
+        if (_state.cfg.onlyUser) {
+          root.console.log('[hook] onlyUser enabled (stack filter active)');
+        }
       } catch (e) {}
 
       return _state.mode;
     }
 
-    function uninstallPublic() {
+    function uninstall() {
       if (!_state) return;
-      uninstall(_state);
+      uninstallInternal(_state);
       try { root.console.log('[hook] uninstalled'); } catch (e) {}
     }
 
@@ -495,19 +562,19 @@
       return _state ? {
         installed: _state.installed,
         mode: _state.mode,
-        installTime: _state.installTime
-      } : { installed: false, mode: null, installTime: null };
+        installTime: _state.installTime,
+        roots: _state.cfg.roots
+      } : { installed: false, mode: null, installTime: null, roots: null };
     }
 
     return {
       install: install,
-      uninstall: uninstallPublic,
+      uninstall: uninstall,
       config: config,
       state: state
     };
   })();
 
-  // Export
   root.CallMonitor = CallMonitor;
 
 })(typeof window !== 'undefined' ? window : this);
