@@ -200,7 +200,8 @@ def main():
                     line = line.strip()
                     if not line:
                         continue
-                    source_lines.append(line)
+                    if "/" in line or "\\" in line:
+                        source_lines.append(line)
 
     repos = config.get("repositories", []) or []
 
