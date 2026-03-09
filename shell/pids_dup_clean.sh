@@ -23,6 +23,11 @@ get_pids() {
   get_rows "$key" | awk '{print $2}' | sort -n
 }
 
+get_pid_content() {
+  key="$1"
+  get_rows "$key" | awk '{print "pid=" $2 " content=" $9}'
+}
+
 count_pids() {
   key="$1"
   pids=`get_pids "$key"`
@@ -38,13 +43,19 @@ count_pids() {
 
 check_dup() {
   key="$1"
-  rows=`get_rows "$key"`
-  pids=`echo "$rows" | awk '{print $2}'`
+  pids=`get_pids "$key"`
+  details=`get_pid_content "$key"`
   cnt=0
+  pid_list=""
 
   for pid in $pids
   do
     cnt=`expr $cnt + 1`
+    if [ -z "$pid_list" ]; then
+      pid_list="$pid"
+    else
+      pid_list="$pid_list $pid"
+    fi
   done
 
   if [ "$cnt" -eq 0 ]; then
@@ -53,11 +64,13 @@ check_dup() {
   fi
 
   if [ "$cnt" -eq 1 ]; then
-    echo "[CHECK] key=$key count=1 status=OK pid=$pids"
+    echo "[CHECK] key=$key count=1 status=OK pid=$pid_list"
+    echo "$details"
     return 0
   fi
 
-  echo "[CHECK] key=$key count=$cnt status=DUPLICATED pids=$pids"
+  echo "[CHECK] key=$key count=$cnt status=DUPLICATED pids=$pid_list"
+  echo "$details"
   return 1
 }
 
@@ -66,30 +79,49 @@ kill_pid_list() {
 
   for pid in $pids
   do
-    echo "[TERM] pid=$pid"
-    kill -15 "$pid" 2>/dev/null
+    case "$pid" in
+      ''|*[!0-9]*)
+        echo "[SKIP] invalid pid=$pid"
+        ;;
+      *)
+        echo "[TERM] pid=$pid"
+        kill -15 "$pid" 2>/dev/null
+        ;;
+    esac
   done
 
   sleep 5
 
   for pid in $pids
   do
-    if kill -0 "$pid" 2>/dev/null; then
-      echo "[KILL] pid=$pid"
-      kill -9 "$pid" 2>/dev/null
-    fi
+    case "$pid" in
+      ''|*[!0-9]*)
+        ;;
+      *)
+        if kill -0 "$pid" 2>/dev/null; then
+          echo "[KILL] pid=$pid"
+          kill -9 "$pid" 2>/dev/null
+        fi
+        ;;
+    esac
   done
 }
 
 cleanup_all() {
   key="$1"
-  rows=`get_rows "$key"`
-  pids=`echo "$rows" | awk '{print $2}' | sort -n`
+  pids=`get_pids "$key"`
+  details=`get_pid_content "$key"`
   cnt=0
+  pid_list=""
 
   for pid in $pids
   do
     cnt=`expr $cnt + 1`
+    if [ -z "$pid_list" ]; then
+      pid_list="$pid"
+    else
+      pid_list="$pid_list $pid"
+    fi
   done
 
   if [ "$cnt" -eq 0 ]; then
@@ -97,19 +129,20 @@ cleanup_all() {
     return 0
   fi
 
-  echo "[CLEANALL] key=$key count=$cnt status=KILL-ALL pids=$pids"
-  echo "$rows"
-  kill_pid_list "$pids"
+  echo "[CLEANALL] key=$key count=$cnt status=KILL-ALL pids=$pid_list"
+  echo "$details"
+  kill_pid_list "$pid_list"
   return 0
 }
 
 cleanup_dup() {
   key="$1"
-  rows=`get_rows "$key"`
-  pids=`echo "$rows" | awk '{print $2}' | sort -n`
+  pids=`get_pids "$key"`
+  details=`get_pid_content "$key"`
 
   cnt=0
   keep_pid=""
+  kill_pids=""
 
   for pid in $pids
   do
@@ -124,19 +157,23 @@ cleanup_dup() {
 
   if [ "$cnt" -eq 1 ]; then
     echo "[CLEANDUP] key=$key count=1 status=OK keep_pid=$keep_pid"
+    echo "$details"
     return 0
   fi
 
-  kill_pids=""
   for pid in $pids
   do
     if [ "$pid" != "$keep_pid" ]; then
-      kill_pids="$kill_pids $pid"
+      if [ -z "$kill_pids" ]; then
+        kill_pids="$pid"
+      else
+        kill_pids="$kill_pids $pid"
+      fi
     fi
   done
 
-  echo "[CLEANDUP] key=$key count=$cnt status=DUPLICATED keep_pid=$keep_pid kill_pids=`echo "$kill_pids" | awk '{$1=$1; print}'`"
-  echo "$rows"
+  echo "[CLEANDUP] key=$key count=$cnt status=DUPLICATED keep_pid=$keep_pid kill_pids=$kill_pids"
+  echo "$details"
 
   kill_pid_list "$kill_pids"
   return 0
