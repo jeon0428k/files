@@ -12,6 +12,10 @@ LOG_FILE_NAME="svc.log"
 # restart stop-wait timeout (seconds)
 STOP_WAIT_SEC=60
 
+# internal state
+STATE_DIR="/tmp/svc_state"
+START_WAIT_SEC=15
+
 # ----------------------------
 # arg normalize (web -> w1 w2 w3)
 # ----------------------------
@@ -121,6 +125,95 @@ backup_date() {
 }
 
 # ----------------------------
+# state helpers
+# ----------------------------
+ensure_state_dir() {
+  [ -d "$STATE_DIR" ] || mkdir -p "$STATE_DIR" 2>/dev/null
+}
+
+pidfile_path() {
+  echo "$STATE_DIR/$1.$2.pid"
+}
+
+helperfile_path() {
+  echo "$STATE_DIR/$1.$2.helper"
+}
+
+rm_pidfile() {
+  f="`pidfile_path "$1" "$2"`"
+  [ -f "$f" ] && rm -f "$f"
+}
+
+read_pidfile() {
+  f="`pidfile_path "$1" "$2"`"
+  [ -f "$f" ] || return 1
+  cat "$f" 2>/dev/null
+}
+
+write_pidfile() {
+  f="`pidfile_path "$1" "$2"`"
+  echo "$3" > "$f"
+}
+
+write_helperfile() {
+  f="`helperfile_path "$1" "$2"`"
+  echo "$3" > "$f"
+}
+
+cleanup_async_meta() {
+  svc="$1"
+  kind="$2"
+
+  hf="`helperfile_path "$svc" "$kind"`"
+  if [ -f "$hf" ]; then
+    helper="`cat "$hf" 2>/dev/null`"
+    if [ -n "$helper" ] && [ -f "$helper" ]; then
+      rm -f "$helper"
+    fi
+    rm -f "$hf"
+  fi
+
+  rm_pidfile "$svc" "$kind"
+}
+
+make_exec_helper() {
+  ensure_state_dir
+
+  helper="$STATE_DIR/helper_$$_${RANDOM:-0}.sh"
+
+  cat > "$helper" <<'EOF'
+#!/bin/sh
+mode="$1"
+arg1="$2"
+arg2="$3"
+arg3="$4"
+
+case "$mode" in
+  script)
+    dir="$arg1"
+    base="$arg2"
+    cd "$dir" || exit 1
+    exec "./$base"
+    ;;
+  copy)
+    src="$arg1"
+    dest="$arg2"
+    [ -d "$src" ] || exit 3
+    [ ! -e "$dest" ] || exit 4
+    exec cp -rp "$src" "$dest"
+    ;;
+  *)
+    exit 99
+    ;;
+esac
+EOF
+
+  chmod 700 "$helper" 2>/dev/null || return 1
+  echo "$helper"
+  return 0
+}
+
+# ----------------------------
 # process helpers
 # ----------------------------
 is_alive() {
@@ -153,6 +246,58 @@ force_kill_silent() {
   kill -9 "$PID" 2>/dev/null
 
   if is_alive "$PID"; then
+    return 1
+  fi
+
+  return 0
+}
+
+get_child_pids() {
+  ppid="$1"
+  ps -ef | awk -v p="$ppid" '$3 == p { print $2 }'
+}
+
+kill_tree_silent() {
+  root="$1"
+  sig="${2:-15}"
+
+  [ -n "$root" ] || return 0
+  is_alive "$root" || return 0
+
+  children="`get_child_pids "$root"`"
+  for c in $children
+  do
+    kill_tree_silent "$c" "$sig"
+  done
+
+  kill "-$sig" "$root" 2>/dev/null
+  return 0
+}
+
+force_kill_tree_silent() {
+  root="$1"
+  wait_sec="${2:-5}"
+
+  [ -n "$root" ] || return 0
+  if ! is_alive "$root"; then
+    return 0
+  fi
+
+  kill_tree_silent "$root" 15
+
+  i=0
+  while [ $i -lt "$wait_sec" ]
+  do
+    if ! is_alive "$root"; then
+      return 0
+    fi
+    sleep 1
+    i=`expr $i + 1`
+  done
+
+  kill_tree_silent "$root" 9
+
+  if is_alive "$root"; then
     return 1
   fi
 
@@ -248,61 +393,123 @@ health_alive() {
 }
 
 # ----------------------------
+# async helpers
+# ----------------------------
+run_script_async() {
+  svc="$1"
+  kind="$2"
+  script="$3"
+
+  [ -n "$script" ] || return 2
+  [ -f "$script" ] || return 3
+  [ -x "$script" ] || return 4
+
+  dir=`dirname "$script"`
+  base=`basename "$script"`
+
+  helper="`make_exec_helper`" || return 5
+
+  nohup "$helper" script "$dir" "$base" "" < /dev/null > /dev/null 2>&1 &
+  pid=$!
+
+  write_pidfile "$svc" "$kind" "$pid"
+  write_helperfile "$svc" "$kind" "$helper"
+
+  return 0
+}
+
+run_copy_async() {
+  svc="$1"
+  src="$2"
+  dest="$3"
+
+  [ -n "$src" ] || return 2
+  [ -d "$src" ] || return 3
+  [ ! -e "$dest" ] || return 10
+
+  helper="`make_exec_helper`" || return 5
+
+  nohup "$helper" copy "$src" "$dest" "" < /dev/null > /dev/null 2>&1 &
+  pid=$!
+
+  write_pidfile "$svc" "backup" "$pid"
+  write_helperfile "$svc" "backup" "$helper"
+
+  return 0
+}
+
+wait_start_settle() {
+  svc="$1"
+
+  i=0
+  while [ $i -lt "$START_WAIT_SEC" ]
+  do
+    spid="`read_pidfile "$svc" start`"
+    jpid="`get_running_pid "$svc"`"
+
+    if [ -n "$spid" ] && ! is_alive "$spid"; then
+      cleanup_async_meta "$svc" "start"
+      return 0
+    fi
+
+    if [ -n "$jpid" ]; then
+      sleep 1
+      spid="`read_pidfile "$svc" start`"
+      if [ -n "$spid" ] && ! is_alive "$spid"; then
+        cleanup_async_meta "$svc" "start"
+      fi
+      return 0
+    fi
+
+    sleep 1
+    i=`expr $i + 1`
+  done
+
+  return 0
+}
+
+# ----------------------------
 # run start/stop/kill/backup
 # ----------------------------
 do_start() {
   svc="$1"
   script="`resolve_start "$svc"`"
 
-  [ -n "$script" ] || return 2
-  [ -f "$script" ] || return 3
-  [ -x "$script" ] || return 4
-
-  # start.sh 내부에서 ./ 상대경로를 써도 안전하도록, 스크립트 디렉터리에서 실행
-  dir=`dirname "$script"`
-  base=`basename "$script"`
-
-  nohup sh -c '
-    cd "$1" || exit 1
-    "./$2"
-  ' sh "$dir" "$base" < /dev/null > /dev/null 2>&1 &
-
-  return 0
+  run_script_async "$svc" "start" "$script"
+  return $?
 }
 
 do_stop() {
   svc="$1"
   script="`resolve_stop "$svc"`"
 
-  [ -n "$script" ] || return 2
-  [ -f "$script" ] || return 3
-  [ -x "$script" ] || return 4
-
-  # stop.sh 내부에서 ./ 상대경로를 써도 안전하도록, 스크립트 디렉터리에서 실행
-  dir=`dirname "$script"`
-  base=`basename "$script"`
-
-  nohup sh -c '
-    cd "$1" || exit 1
-    "./$2"
-  ' sh "$dir" "$base" < /dev/null > /dev/null 2>&1 &
-
-  return 0
+  run_script_async "$svc" "stop" "$script"
+  return $?
 }
 
 do_kill() {
   svc="$1"
   pids="`get_running_pids "$svc"`"
-  [ -n "$pids" ] || return 0
 
-  (
-    rc=0
-    for pid in $pids
-    do
-      force_kill_silent "$pid" 5 || rc=1
-    done
-    exit $rc
-  ) >/dev/null 2>&1 &
+  if [ -n "$pids" ]; then
+    (
+      rc=0
+      for pid in $pids
+      do
+        force_kill_silent "$pid" 5 || rc=1
+      done
+      exit $rc
+    ) >/dev/null 2>&1 &
+  fi
+
+  for kind in start stop backup
+  do
+    hpid="`read_pidfile "$svc" "$kind"`"
+    if [ -n "$hpid" ]; then
+      force_kill_tree_silent "$hpid" 5 >/dev/null 2>&1
+      cleanup_async_meta "$svc" "$kind"
+    fi
+  done
 
   return 0
 }
@@ -323,17 +530,8 @@ do_backup() {
     return 10
   fi
 
-  # 백그라운드 실행: cp -rp "src" "dest"
-  # (주의) dest가 이미 있으면 cp가 꼬일 수 있으니, 있으면 실패로 종료하도록 가드
-  nohup sh -c '
-    src="$1"
-    dest="$2"
-    [ -d "$src" ] || exit 3
-    [ ! -e "$dest" ] || exit 4
-    cp -rp "$src" "$dest"
-  ' sh "$src" "$dest" < /dev/null > /dev/null 2>&1 &
-
-  return 0
+  run_copy_async "$svc" "$src" "$dest"
+  return $?
 }
 
 wait_down() {
@@ -399,15 +597,25 @@ case "$action" in
   *) usage ;;
 esac
 
+ensure_state_dir
+
 # web -> w1 w2 w3 로 확장
 set -- `expand_services "$@"`
 
 # log / logc: 다중 tail
 if [ "$action" = "log" ] || [ "$action" = "logc" ]; then
-  # Ctrl+C / kill 시 현재 프로세스 그룹 전체 종료
-  trap 'kill 0 2>/dev/null; exit' INT TERM
-
+  LOG_PIDS=""
   out_file=""
+
+  cleanup_logs() {
+    for p in $LOG_PIDS
+    do
+      force_kill_tree_silent "$p" 3 >/dev/null 2>&1
+    done
+    exit 0
+  }
+
+  trap 'cleanup_logs' INT TERM EXIT
 
   if [ "$action" = "logc" ]; then
     out_file="$LOG_BASE_PATH/$LOG_FILE_NAME"
@@ -440,16 +648,20 @@ if [ "$action" = "log" ] || [ "$action" = "logc" ]; then
     fi
     echo "`now` | TAIL `svc_label "$svc"` -> $logfile"
 
-    ( tail -f "$logfile" | awk -v svc="$svc" -v out="$out_file" '
-      {
-        line="[" svc "] " $0
-        print line
-        if (out != "") {
-          print line >> out
-          close(out)
+    (
+      tail -f "$logfile" 2>/dev/null | awk -v svc="$svc" -v out="$out_file" '
+        {
+          line="[" svc "] " $0
+          print line
+          if (out != "") {
+            print line >> out
+            close(out)
+          }
         }
-      }
-    ' ) &
+      '
+    ) &
+    pid=$!
+    LOG_PIDS="$LOG_PIDS $pid"
   done
 
   wait
@@ -479,6 +691,7 @@ if [ "$action" = "restart" ]; then
   for svc in "$@"
   do
     if wait_down "$svc" "$STOP_WAIT_SEC"; then
+      cleanup_async_meta "$svc" "stop"
       :
     else
       pid="`get_running_pid "$svc"`"
@@ -492,7 +705,7 @@ if [ "$action" = "restart" ]; then
   for svc in "$@"
   do
     if do_start "$svc"; then
-      sleep 1
+      wait_start_settle "$svc"
       pid="`get_running_pid "$svc"`"
       if [ -n "$pid" ]; then
         echo "[START] `svc_label "$svc"` (pid=$pid)"
@@ -529,7 +742,7 @@ do
       fi
 
       if do_start "$svc"; then
-        sleep 1
+        wait_start_settle "$svc"
         pid="`get_running_pid "$svc"`"
         if [ -n "$pid" ]; then
           echo "[START] `svc_label "$svc"` (pid=$pid)"
