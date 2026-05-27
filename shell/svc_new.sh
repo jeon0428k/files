@@ -409,24 +409,20 @@ if [ "$action" = "log" ] || [ "$action" = "logc" ]; then
     fi
 
     if [ -p "$_fifo" ]; then
-      # tail PID 추적
       tail -f "$logfile" > "$_fifo" &
       _bg_pids="$_bg_pids $!"
-
+    
       if [ -n "$out_file" ]; then
-        # logc: tee PID 추적. kill tee → awk SIGPIPE → (fifo 닫힘) → tail SIGPIPE
-        awk -v svc="$svc" '{print "[" svc "] " $0; fflush()}' < "$_fifo" | tee -a "$out_file" &
+        sed "s|^|[$svc] |" < "$_fifo" | tee -a "$out_file" &
       else
-        # log: awk PID 추적. kill awk → (fifo 닫힘) → tail SIGPIPE
-        awk -v svc="$svc" '{print "[" svc "] " $0; fflush()}' < "$_fifo" &
+        sed "s|^|[$svc] |" < "$_fifo" &
       fi
       _bg_pids="$_bg_pids $!"
     else
-      # mkfifo 불가 시 fallback: 마지막 PID만 추적 + 그룹 kill로 보완
       if [ -n "$out_file" ]; then
-        tail -f "$logfile" | awk -v svc="$svc" '{print "[" svc "] " $0; fflush()}' | tee -a "$out_file" &
+        tail -f "$logfile" | sed "s|^|[$svc] |" | tee -a "$out_file" &
       else
-        tail -f "$logfile" | awk -v svc="$svc" '{print "[" svc "] " $0; fflush()}' &
+        tail -f "$logfile" | sed "s|^|[$svc] |" &
       fi
       _bg_pids="$_bg_pids $!"
     fi
